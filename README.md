@@ -17,6 +17,7 @@ not write directly to the database.
 - Organise vocabulary and individual grammar rules into manual lesson topics.
 - Classify learning items with an approved LLM topic taxonomy.
 - Review, approve, merge, or reject new LLM topic proposals.
+- Study all vocabulary or grammar explanations within a selected topic.
 - Browse the vocabulary and grammar library.
 - Generate vocabulary, grammar, or mixed exercises by one or several topics.
 - Prioritise weak, new, inactive, and overdue learning items.
@@ -218,6 +219,18 @@ topic versioning should be added before importing a large library.
 Seeded LLM topics are controlled taxonomy entries. The LLM may assign them
 immediately, but a new proposed topic does not become a normal practice filter
 until it is approved or merged.
+
+### Learn by topic
+
+1. Open **Learn**.
+2. Choose manual lesson topics or approved LLM topics.
+3. Select a topic.
+4. Choose vocabulary, grammar, or both.
+
+The vocabulary view shows meanings, patterns, register, level, examples,
+collocations, and common mistakes. The grammar view shows explanations,
+patterns, common verbs, correct examples, incorrect examples with corrections,
+exceptions, and notes.
 
 ### Practise
 

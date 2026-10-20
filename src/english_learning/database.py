@@ -493,6 +493,94 @@ class Database:
             )
         ]
 
+    def get_learning_content(
+        self,
+        *,
+        topic_source: str,
+        topic_id: int,
+    ) -> dict:
+        with self.connect() as connection:
+            if topic_source == "lesson":
+                topic_row = connection.execute(
+                    """
+                    SELECT id, name, description
+                    FROM lesson_topics
+                    WHERE id = ?
+                    """,
+                    (topic_id,),
+                ).fetchone()
+                vocabulary_rows = connection.execute(
+                    """
+                    SELECT vocabulary_id
+                    FROM lesson_topic_vocabulary
+                    WHERE lesson_topic_id = ?
+                    """,
+                    (topic_id,),
+                ).fetchall()
+                grammar_rows = connection.execute(
+                    """
+                    SELECT grammar_rule_id
+                    FROM lesson_topic_grammar_rules
+                    WHERE lesson_topic_id = ?
+                    """,
+                    (topic_id,),
+                ).fetchall()
+            elif topic_source == "llm":
+                topic_row = connection.execute(
+                    """
+                    SELECT id, name, topic_kind, slug
+                    FROM llm_topics
+                    WHERE id = ? AND status = 'approved'
+                    """,
+                    (topic_id,),
+                ).fetchone()
+                vocabulary_rows = connection.execute(
+                    """
+                    SELECT vocabulary_id
+                    FROM llm_topic_vocabulary
+                    WHERE llm_topic_id = ?
+                    """,
+                    (topic_id,),
+                ).fetchall()
+                grammar_rows = connection.execute(
+                    """
+                    SELECT grammar_rule_id
+                    FROM llm_topic_grammar_rules
+                    WHERE llm_topic_id = ?
+                    """,
+                    (topic_id,),
+                ).fetchall()
+            else:
+                raise ValueError(f"Unknown topic source: {topic_source}")
+
+        if topic_row is None:
+            raise ValueError("The selected topic does not exist.")
+
+        vocabulary_ids = {row[0] for row in vocabulary_rows}
+        grammar_rule_ids = {row[0] for row in grammar_rows}
+        vocabulary = [
+            item
+            for item in self.list_vocabulary()
+            if item["id"] in vocabulary_ids
+        ]
+        grammar_rules = []
+        for grammar_topic in self.list_grammar_topics():
+            for rule in grammar_topic["rules"]:
+                if rule["id"] in grammar_rule_ids:
+                    grammar_rules.append(
+                        {
+                            **rule,
+                            "grammar_topic_title": grammar_topic["title"],
+                            "grammar_topic_summary": grammar_topic["summary"],
+                            "level": grammar_topic["level"],
+                        }
+                    )
+        return {
+            "topic": dict(topic_row),
+            "vocabulary": vocabulary,
+            "grammar_rules": grammar_rules,
+        }
+
     def resolve_llm_topic(
         self,
         topic_id: int,

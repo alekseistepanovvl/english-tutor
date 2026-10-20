@@ -505,6 +505,117 @@ def topics_page() -> None:
                     st.rerun()
 
 
+def learning_page() -> None:
+    st.header("Learn by topic")
+    st.write(
+        "Choose a lesson topic or an approved LLM topic to study all of its "
+        "vocabulary and grammar explanations."
+    )
+    topic_source_label = st.radio(
+        "Topic source",
+        ["Lesson topics", "LLM topics"],
+        horizontal=True,
+    )
+    if topic_source_label == "Lesson topics":
+        topic_source = "lesson"
+        topics = database.list_lesson_topics()
+    else:
+        topic_source = "llm"
+        topics = database.list_llm_topics(status="approved")
+
+    if not topics:
+        st.info(f"No {topic_source_label.lower()} are available yet.")
+        return
+
+    topic_names = [topic["name"] for topic in topics]
+    selected_name = st.selectbox("Topic", topic_names)
+    selected_topic = next(
+        topic for topic in topics if topic["name"] == selected_name
+    )
+    material = st.radio(
+        "Learning material",
+        ["Vocabulary", "Grammar", "Both"],
+        horizontal=True,
+    )
+    content = database.get_learning_content(
+        topic_source=topic_source,
+        topic_id=selected_topic["id"],
+    )
+    vocabulary = content["vocabulary"]
+    grammar_rules = content["grammar_rules"]
+
+    if topic_source == "lesson" and content["topic"].get("description"):
+        st.write(content["topic"]["description"])
+    st.caption(
+        f"{len(vocabulary)} vocabulary item(s) · "
+        f"{len(grammar_rules)} grammar rule(s)"
+    )
+
+    if material in {"Vocabulary", "Both"}:
+        st.subheader("Vocabulary")
+        if not vocabulary:
+            st.info("This topic does not contain vocabulary yet.")
+        for item in vocabulary:
+            with st.expander(item["expression"], expanded=True):
+                st.write(f"**Meaning:** {item['meaning']}")
+                if item["pattern"]:
+                    st.write(f"**Pattern:** `{item['pattern']}`")
+                st.write(
+                    f"**Type:** {item['item_type']} · "
+                    f"**Register:** {item['register']} · "
+                    f"**Level:** {item['level'] or 'Not set'}"
+                )
+                st.markdown("**Examples:**")
+                for example in item["examples"]:
+                    context = (
+                        f" _({example['context']})_"
+                        if example["context"]
+                        else ""
+                    )
+                    st.write(f"- {example['sentence']}{context}")
+                if item["collocations"]:
+                    st.write(
+                        "**Collocations:** "
+                        + ", ".join(item["collocations"])
+                    )
+                if item["common_mistakes"]:
+                    st.markdown("**Common mistakes:**")
+                    for mistake in item["common_mistakes"]:
+                        st.write(f"- {mistake}")
+
+    if material in {"Grammar", "Both"}:
+        st.subheader("Grammar")
+        if not grammar_rules:
+            st.info("This topic does not contain grammar rules yet.")
+        for rule in grammar_rules:
+            with st.expander(
+                f"{rule['grammar_topic_title']} — {rule['name']}",
+                expanded=True,
+            ):
+                st.write(rule["explanation"])
+                st.write(f"**Pattern:** `{rule['pattern']}`")
+                if rule["verbs"]:
+                    st.write("**Common verbs:** " + ", ".join(rule["verbs"]))
+                st.markdown("**Examples:**")
+                for example in rule["correct_examples"]:
+                    st.write(f"- {example}")
+                if rule["incorrect_examples"]:
+                    st.markdown("**Common mistakes:**")
+                    for example in rule["incorrect_examples"]:
+                        st.write(
+                            f"- ~~{example['incorrect']}~~ → "
+                            f"**{example['correct']}** — {example['reason']}"
+                        )
+                if rule["exceptions"]:
+                    st.markdown("**Exceptions:**")
+                    for exception in rule["exceptions"]:
+                        st.write(f"- {exception}")
+                if rule["notes"]:
+                    st.markdown("**Notes:**")
+                    for note in rule["notes"]:
+                        st.write(f"- {note}")
+
+
 def library_page() -> None:
     st.header("Library")
     vocabulary_tab, grammar_tab = st.tabs(["Vocabulary", "Grammar"])
@@ -610,6 +721,7 @@ page = st.sidebar.radio(
     [
         "Vocabulary",
         "Grammar",
+        "Learn",
         "Practice",
         "Topics",
         "Library",
@@ -621,6 +733,8 @@ if page == "Vocabulary":
     vocabulary_page()
 elif page == "Grammar":
     grammar_page()
+elif page == "Learn":
+    learning_page()
 elif page == "Practice":
     practice_page()
 elif page == "Topics":

@@ -5,6 +5,8 @@ from pathlib import Path
 from english_learning.database import SCHEMA, Database
 from english_learning.domain import (
     ApprovedTopicAssignment,
+    GrammarRule,
+    GrammarTopic,
     ProposedTopicAssignment,
     TopicAssignment,
     VocabularyExample,
@@ -96,6 +98,49 @@ def test_attempt_updates_vocabulary_statistics(tmp_path: Path) -> None:
     assert candidate["attempt_count"] == 1
     assert candidate["mastery_score"] == 1.0
     assert candidate["next_review_at"] is not None
+
+
+def test_learning_content_returns_topic_vocabulary_and_grammar(
+    tmp_path: Path,
+) -> None:
+    database = Database(tmp_path / "test.sqlite3")
+    database.initialize()
+    lesson_id = database.create_lesson_topic(
+        "Job interview",
+        "Vocabulary and grammar for interview preparation.",
+    )
+    database.save_vocabulary([vocabulary_item()], [lesson_id])
+    database.save_grammar_topic(
+        GrammarTopic(
+            title="Verb patterns",
+            summary="Verbs followed by infinitives.",
+            level="B1",
+            rules=[
+                GrammarRule(
+                    name="Verb + to-infinitive",
+                    explanation="Some verbs take a to-infinitive.",
+                    pattern="verb + to + base verb",
+                    correct_examples=[
+                        "She refused to answer.",
+                        "We managed to finish.",
+                    ],
+                )
+            ],
+        ),
+        [lesson_id],
+    )
+
+    content = database.get_learning_content(
+        topic_source="lesson",
+        topic_id=lesson_id,
+    )
+
+    assert content["topic"]["name"] == "Job interview"
+    assert content["vocabulary"][0]["examples"]
+    assert content["grammar_rules"][0]["correct_examples"]
+    assert (
+        content["grammar_rules"][0]["grammar_topic_title"] == "Verb patterns"
+    )
 
 
 def test_initialization_is_idempotent(tmp_path: Path) -> None:
