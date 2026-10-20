@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class StrictModel(BaseModel):
@@ -95,12 +95,20 @@ class Exercise(StrictModel):
         "error_correction",
         "free_production",
     ]
+    instruction: str = Field(min_length=1)
     question: str = Field(min_length=1)
+    cue: str | None = None
     options: list[str] = Field(default_factory=list)
     expected_answers: list[str] = Field(min_length=1)
     explanation: str = Field(min_length=1)
     primary_item_key: str = Field(min_length=1)
     supporting_item_keys: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_blank_exercise(self) -> "Exercise":
+        if self.exercise_type == "fill_blank" and "___" not in self.question:
+            raise ValueError("Fill-blank questions must contain a blank.")
+        return self
 
 
 class ExerciseSet(StrictModel):

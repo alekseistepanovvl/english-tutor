@@ -112,6 +112,11 @@ class OllamaClient:
                     "The model referenced learning items that were not "
                     f"provided: {', '.join(sorted(unknown))}"
                 )
+            if exercise.exercise_type != "fill_blank":
+                raise OllamaError(
+                    "The model returned an unsupported practice format. "
+                    "All guided exercises must be fill-blank exercises."
+                )
         return exercises
 
     def evaluate_answer(

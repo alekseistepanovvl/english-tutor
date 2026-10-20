@@ -249,6 +249,8 @@ def practice_page() -> None:
                     },
                 )
                 st.session_state["exercise_set"] = generated
+                st.session_state["practice_material"] = selected_items
+                st.session_state["practice_source"] = source
                 st.session_state["practice_session_id"] = session_id
                 st.session_state["evaluations"] = {}
                 st.session_state["recorded_exercises"] = []
@@ -259,9 +261,47 @@ def practice_page() -> None:
     if not exercise_set:
         return
 
+    practice_material = st.session_state.get("practice_material", [])
+    vocabulary_material = [
+        item for item in practice_material if item["kind"] == "vocabulary"
+    ]
+    grammar_material = [
+        item for item in practice_material if item["kind"] == "grammar"
+    ]
+
+    st.divider()
+    st.header("Material for this practice")
+    if vocabulary_material:
+        st.subheader("Vocabulary bank")
+        st.write(
+            "Use these words or phrases to complete the vocabulary sentences."
+        )
+        for item in vocabulary_material:
+            st.markdown(
+                f"- **{item['expression']}** — {item['meaning']}"
+            )
+    if grammar_material:
+        st.subheader("Grammar rules")
+        st.write("Use these rules to form the missing part of each sentence.")
+        for item in grammar_material:
+            with st.expander(
+                f"{item['grammar_topic']} — {item['name']}",
+                expanded=True,
+            ):
+                st.write(item["explanation"])
+                st.write(f"**Pattern:** `{item['pattern']}`")
+                if item.get("correct_examples"):
+                    st.markdown("**Examples:**")
+                    for example in item["correct_examples"]:
+                        st.write(f"- {example}")
+
+    st.header("Exercises")
     for index, exercise in enumerate(exercise_set.exercises):
         st.divider()
+        st.caption(exercise.instruction)
         st.subheader(f"{index + 1}. {exercise.question}")
+        if exercise.cue:
+            st.write(f"**Cue:** {exercise.cue}")
         if exercise.options:
             answer = st.radio(
                 "Choose an answer",
@@ -270,9 +310,10 @@ def practice_page() -> None:
                 index=None,
             )
         else:
-            answer = st.text_area(
-                "Your answer",
+            answer = st.text_input(
+                "Text for the blank",
                 key=f"answer_{index}",
+                placeholder="Type only the missing word or phrase",
             )
 
         already_recorded = index in st.session_state["recorded_exercises"]
@@ -301,7 +342,10 @@ def practice_page() -> None:
                         *exercise.supporting_item_keys,
                     ]
                     database.save_attempt(
-                        item_type=source.lower(),
+                        item_type=st.session_state.get(
+                            "practice_source",
+                            source,
+                        ).lower(),
                         item_key=None,
                         item_keys=item_keys,
                         question=exercise.question,
@@ -320,18 +364,24 @@ def practice_page() -> None:
         evaluation = st.session_state["evaluations"].get(index)
         if evaluation:
             if evaluation.verdict == "correct":
-                st.success(evaluation.explanation)
+                st.success("Correct")
             elif evaluation.verdict == "partially_correct":
-                st.warning(evaluation.explanation)
+                st.warning("Partially correct")
             else:
-                st.error(evaluation.explanation)
-            if evaluation.corrected_answer:
-                st.write(
-                    f"**Suggested answer:** {evaluation.corrected_answer}"
+                st.error("Incorrect")
+            st.write(f"**Why:** {evaluation.explanation}")
+            if evaluation.verdict != "correct":
+                correct_answer = (
+                    evaluation.corrected_answer
+                    or exercise.expected_answers[0]
                 )
-            with st.expander("Reference answer"):
-                st.write("\n\n".join(exercise.expected_answers))
-                st.caption(exercise.explanation)
+                st.write(f"**Correct answer:** {correct_answer}")
+            with st.expander("Rule or usage explanation"):
+                st.write(exercise.explanation)
+                st.write(
+                    "**Accepted answer(s):** "
+                    + ", ".join(exercise.expected_answers)
+                )
 
 
 def topics_page() -> None:

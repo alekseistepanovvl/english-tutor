@@ -141,6 +141,11 @@ def test_learning_content_returns_topic_vocabulary_and_grammar(
     assert (
         content["grammar_rules"][0]["grammar_topic_title"] == "Verb patterns"
     )
+    grammar_candidates = database.get_practice_candidates(source="Grammar")
+    assert grammar_candidates[0]["correct_examples"] == [
+        "She refused to answer.",
+        "We managed to finish.",
+    ]
 
 
 def test_initialization_is_idempotent(tmp_path: Path) -> None:

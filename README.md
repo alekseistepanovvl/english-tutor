@@ -245,6 +245,20 @@ Multiple selected topics use union semantics: an item is included when it
 belongs to any selected topic. With no topic filter, all material of the
 selected type is eligible.
 
+Before the exercises, vocabulary practice displays the complete word and phrase
+bank selected for the session. Grammar practice displays the selected rules,
+patterns, explanations, and examples.
+
+Exercises use sentences with a blank:
+
+- Vocabulary questions require the appropriate saved word or phrase.
+- Grammar questions require the correct grammatical form or construction.
+- Grammar questions may include a bracketed cue such as `(go)` or
+  `(refuse / help)`.
+
+After checking an answer, the application displays whether it is correct,
+explains why, and shows the correct missing text when necessary.
+
 The selector favours weak, new, inactive, and overdue items. Strong items retain
 a non-zero maintenance probability so they are not forgotten. Questions,
 answers, scores, feedback, stable item references, mastery, streaks, and review

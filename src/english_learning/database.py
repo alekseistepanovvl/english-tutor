@@ -707,6 +707,7 @@ class Database:
                 rows = connection.execute(
                     """
                     SELECT r.id, r.name, r.explanation, r.pattern,
+                           r.correct_examples_json,
                            t.title AS grammar_topic,
                            COALESCE(s.attempt_count, 0) AS attempt_count,
                            COALESCE(s.mastery_score, 0) AS mastery_score,
@@ -728,6 +729,9 @@ class Database:
                     ):
                         continue
                     candidate = dict(row)
+                    candidate["correct_examples"] = json.loads(
+                        candidate.pop("correct_examples_json")
+                    )
                     candidate["item_key"] = f"grammar_rule:{row['id']}"
                     candidate["kind"] = "grammar"
                     candidates.append(candidate)
