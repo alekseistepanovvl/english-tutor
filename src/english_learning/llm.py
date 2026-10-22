@@ -17,6 +17,8 @@ from english_learning.domain import (
     Exercise,
     ExerciseSet,
     GrammarTopic,
+    InputValidation,
+    InputValidationSet,
     VocabularyImport,
 )
 
@@ -79,6 +81,68 @@ class OllamaClient:
             response_model=GrammarTopic,
             temperature=0,
         )
+
+    def validate_vocabulary_inputs(
+        self,
+        inputs: list[tuple[int, str]],
+        existing_values: list[str] | None = None,
+    ) -> dict[int, InputValidation]:
+        return self._validate_inputs(
+            prompt_name="vocabulary_validate.md",
+            inputs=inputs,
+            existing_values=existing_values,
+        )
+
+    def validate_grammar_inputs(
+        self,
+        inputs: list[tuple[int, str]],
+        existing_values: list[str] | None = None,
+    ) -> dict[int, InputValidation]:
+        return self._validate_inputs(
+            prompt_name="grammar_validate.md",
+            inputs=inputs,
+            existing_values=existing_values,
+        )
+
+    def _validate_inputs(
+        self,
+        *,
+        prompt_name: str,
+        inputs: list[tuple[int, str]],
+        existing_values: list[str] | None,
+    ) -> dict[int, InputValidation]:
+        if not inputs:
+            return {}
+        result = self._structured_chat(
+            prompt_name=prompt_name,
+            user_content=json.dumps(
+                {
+                    "inputs": [
+                        {"input_index": index, "input": value}
+                        for index, value in inputs
+                    ],
+                    "existing_saved_entries": existing_values or [],
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            response_model=InputValidationSet,
+            temperature=0,
+        )
+        expected_indexes = {index for index, _ in inputs}
+        validations = {
+            validation.input_index: validation
+            for validation in result.validations
+        }
+        if (
+            len(validations) != len(result.validations)
+            or set(validations) != expected_indexes
+        ):
+            raise OllamaError(
+                "The model did not return exactly one validation for each "
+                "submitted input."
+            )
+        return validations
 
     def generate_exercises(
         self,
@@ -240,8 +304,11 @@ class OllamaClient:
             result = response_model.model_validate_json(content)
         except (KeyError, TypeError, ValueError) as error:
             logger.warning(
-                "Ollama returned invalid structured data task=%s elapsed=%.2fs",
+                "Ollama returned invalid structured data task=%s "
+                "reason=%s: %s elapsed=%.2fs",
                 prompt_name,
+                type(error).__name__,
+                error,
                 perf_counter() - started_at,
             )
             raise OllamaError(

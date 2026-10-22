@@ -54,6 +54,31 @@ def vocabulary_item() -> VocabularyItem:
     )
 
 
+def test_topic_confidence_accepts_percentage_values_from_model() -> None:
+    approved = ApprovedTopicAssignment(
+        slug="work-and-employment",
+        confidence=80,
+        rationale="The expression relates to work.",
+    )
+    proposed = ProposedTopicAssignment(
+        name="Travel routines",
+        confidence="75%",
+        rationale="The expression describes routine travel.",
+    )
+
+    assert approved.confidence == 0.8
+    assert proposed.confidence == 0.75
+
+
+def test_topic_confidence_rejects_values_above_one_hundred() -> None:
+    with pytest.raises(ValueError):
+        ApprovedTopicAssignment(
+            slug="work-and-employment",
+            confidence=101,
+            rationale="The expression relates to work.",
+        )
+
+
 def test_topic_assignment_and_lesson_membership(tmp_path: Path) -> None:
     database = Database(tmp_path / "test.sqlite3")
     database.initialize()

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import sqlite3
 
@@ -22,6 +21,8 @@ from english_learning.database import Database
 from english_learning.domain import (
     AnswerEvaluation,
     GrammarTopic,
+    InputValidation,
+    VocabularyItem,
     VocabularyImport,
 )
 from english_learning.llm import OllamaClient, OllamaError
@@ -29,6 +30,7 @@ from english_learning.scheduling import (
     select_practice_items,
     shuffle_exercises,
 )
+from english_learning.validation import find_duplicate_inputs
 
 
 st.set_page_config(
@@ -43,10 +45,405 @@ database.initialize()
 llm = OllamaClient(settings)
 
 
-def formatted_json(value: object) -> str:
-    if hasattr(value, "model_dump"):
-        value = value.model_dump(by_alias=True)
-    return json.dumps(value, ensure_ascii=False, indent=2)
+def nonempty_lines(value: str) -> list[str]:
+    return [line.strip() for line in value.splitlines() if line.strip()]
+
+
+def clear_session_keys(prefix: str) -> None:
+    for key in list(st.session_state):
+        if key.startswith(prefix):
+            del st.session_state[key]
+
+
+def clear_input_workflow(kind: str) -> None:
+    st.session_state.pop(f"{kind}_validation", None)
+    st.session_state.pop(f"{kind}_validation_inputs", None)
+    st.session_state.pop(f"{kind}_preview", None)
+
+
+def add_input_field(kind: str) -> None:
+    st.session_state[f"{kind}_input_count"] += 1
+    clear_input_workflow(kind)
+
+
+def remove_input_field(kind: str, index: int) -> None:
+    count_key = f"{kind}_input_count"
+    count = st.session_state[count_key]
+    values = [
+        st.session_state.get(f"{kind}_input_{item_index}", "")
+        for item_index in range(count)
+        if item_index != index
+    ]
+    clear_session_keys(f"{kind}_input_")
+    if not values:
+        values = [""]
+    st.session_state[count_key] = len(values)
+    for item_index, value in enumerate(values):
+        st.session_state[f"{kind}_input_{item_index}"] = value
+    clear_input_workflow(kind)
+
+
+def use_input_suggestion(
+    kind: str,
+    index: int,
+    suggestion: str,
+) -> None:
+    st.session_state[f"{kind}_input_{index}"] = suggestion
+    clear_input_workflow(kind)
+
+
+def render_input_fields(
+    *,
+    kind: str,
+    label: str,
+    add_label: str,
+    placeholder: str,
+    multiline: bool,
+) -> list[str]:
+    count_key = f"{kind}_input_count"
+    count = st.session_state.setdefault(count_key, 1)
+    values = []
+    for index in range(count):
+        input_col, delete_col = st.columns([12, 1])
+        widget_args = {
+            "label": f"{label} {index + 1}",
+            "key": f"{kind}_input_{index}",
+            "placeholder": placeholder,
+            "on_change": clear_input_workflow,
+            "args": (kind,),
+        }
+        if multiline:
+            value = input_col.text_area(height=140, **widget_args)
+        else:
+            value = input_col.text_input(**widget_args)
+        delete_col.button(
+            "✕",
+            key=f"delete_{kind}_input_{index}",
+            help=f"Delete {label.lower()} {index + 1}",
+            on_click=remove_input_field,
+            args=(kind, index),
+        )
+        values.append(value)
+    st.button(
+        f"＋ Add {add_label}",
+        key=f"add_{kind}_input",
+        on_click=add_input_field,
+        args=(kind,),
+    )
+    return values
+
+
+def render_input_validation(
+    kind: str,
+    inputs: list[str],
+) -> bool:
+    if st.session_state.get(f"{kind}_validation_inputs") != inputs:
+        return False
+    validations: dict[int, InputValidation] = st.session_state.get(
+        f"{kind}_validation",
+        {},
+    )
+    if len(validations) != len(inputs):
+        return False
+    st.subheader("Validation results")
+    all_valid = True
+    for index, value in enumerate(inputs):
+        validation = validations[index]
+        if validation.status == "valid":
+            st.success(f'**{value}** — {validation.explanation}')
+        elif validation.status == "corrected":
+            all_valid = False
+            st.warning(
+                f'**{value}** — {validation.explanation}\n\n'
+                f"Suggested: **{validation.suggested_input}**"
+            )
+            st.button(
+                "Use suggestion",
+                key=f"use_{kind}_suggestion_{index}",
+                on_click=use_input_suggestion,
+                args=(kind, index, validation.suggested_input or value),
+            )
+        else:
+            all_valid = False
+            st.error(f'**{value}** — {validation.explanation}')
+            st.button(
+                "Delete entry",
+                key=f"delete_invalid_{kind}_{index}",
+                on_click=remove_input_field,
+                args=(kind, index),
+            )
+    if not all_valid:
+        st.info("Apply a suggestion, edit, or delete entries, then validate again.")
+    return all_valid
+
+
+def validate_inputs(
+    *,
+    kind: str,
+    inputs: list[str],
+    existing_values: list[str],
+) -> None:
+    duplicate_indexes = find_duplicate_inputs(inputs, existing_values)
+    pending = [
+        (index, value)
+        for index, value in enumerate(inputs)
+        if index not in duplicate_indexes
+    ]
+    if kind == "vocabulary":
+        validations = llm.validate_vocabulary_inputs(
+            pending,
+            existing_values,
+        )
+    else:
+        validations = llm.validate_grammar_inputs(
+            pending,
+            existing_values,
+        )
+    for index in duplicate_indexes:
+        validations[index] = InputValidation(
+            input_index=index,
+            status="invalid",
+            explanation=(
+                "This entry is duplicated in the current submission or "
+                "already exists in the library."
+            ),
+        )
+    st.session_state[f"{kind}_validation"] = validations
+    st.session_state[f"{kind}_validation_inputs"] = inputs
+
+
+def render_topic_suggestions(topic_assignment: object) -> None:
+    approved = getattr(topic_assignment, "approved_topics", [])
+    proposed = getattr(topic_assignment, "proposed_topics", [])
+    if not approved and not proposed:
+        return
+    st.markdown("**Topic suggestions**")
+    for assignment in approved:
+        st.caption(
+            f"Approved: {assignment.slug} "
+            f"({assignment.confidence:.0%}) — {assignment.rationale}"
+        )
+    for assignment in proposed:
+        st.caption(
+            f"Proposed: {assignment.name} "
+            f"({assignment.confidence:.0%}) — {assignment.rationale}"
+        )
+
+
+def render_vocabulary_editor(item: VocabularyItem, index: int) -> dict:
+    prefix = f"vocabulary_preview_{index}"
+    with st.expander(item.expression, expanded=True):
+        expression = st.text_input(
+            "Expression",
+            item.expression,
+            key=f"{prefix}_expression",
+        )
+        meaning = st.text_area(
+            "Meaning",
+            item.meaning,
+            key=f"{prefix}_meaning",
+        )
+        type_col, register_col, level_col = st.columns(3)
+        item_types = [
+            "word",
+            "phrase",
+            "idiom",
+            "phrasal_verb",
+            "collocation",
+        ]
+        item_type = type_col.selectbox(
+            "Type",
+            item_types,
+            index=item_types.index(item.item_type),
+            format_func=lambda value: value.replace("_", " ").title(),
+            key=f"{prefix}_type",
+        )
+        registers = ["formal", "neutral", "informal", "slang"]
+        usage_register = register_col.selectbox(
+            "Register",
+            registers,
+            index=registers.index(item.usage_register),
+            key=f"{prefix}_register",
+        )
+        levels = ["Not set", "A1", "A2", "B1", "B2", "C1", "C2"]
+        level = level_col.selectbox(
+            "Level",
+            levels,
+            index=levels.index(item.level or "Not set"),
+            key=f"{prefix}_level",
+        )
+        pattern = st.text_input(
+            "Pattern",
+            item.pattern or "",
+            key=f"{prefix}_pattern",
+        )
+        st.markdown("**Examples**")
+        examples = []
+        for example_index, example in enumerate(item.examples):
+            sentence_col, context_col = st.columns([3, 1])
+            sentence = sentence_col.text_input(
+                f"Example {example_index + 1}",
+                example.sentence,
+                key=f"{prefix}_example_{example_index}",
+            )
+            context = context_col.text_input(
+                "Context",
+                example.context or "",
+                key=f"{prefix}_context_{example_index}",
+            )
+            examples.append(
+                {
+                    "sentence": sentence,
+                    "context": context or None,
+                }
+            )
+        collocations = st.text_area(
+            "Collocations (one per line)",
+            "\n".join(item.collocations),
+            key=f"{prefix}_collocations",
+        )
+        common_mistakes = st.text_area(
+            "Common mistakes (one per line)",
+            "\n".join(item.common_mistakes),
+            key=f"{prefix}_mistakes",
+        )
+        tags = st.text_input(
+            "Tags (comma-separated)",
+            ", ".join(item.tags),
+            key=f"{prefix}_tags",
+        )
+        render_topic_suggestions(item.topic_assignment)
+    return {
+        "expression": expression,
+        "normalized_expression": (
+            item.normalized_expression
+            if expression == item.expression
+            else expression.strip().casefold()
+        ),
+        "item_type": item_type,
+        "meaning": meaning,
+        "pattern": pattern or None,
+        "register": usage_register,
+        "level": None if level == "Not set" else level,
+        "examples": examples,
+        "collocations": nonempty_lines(collocations),
+        "common_mistakes": nonempty_lines(common_mistakes),
+        "tags": [
+            tag.strip() for tag in tags.split(",") if tag.strip()
+        ],
+        "topic_assignment": item.topic_assignment.model_dump(),
+    }
+
+
+def render_grammar_editor(topic: GrammarTopic, topic_index: int) -> dict:
+    prefix = f"grammar_preview_{topic_index}"
+    with st.expander(topic.title, expanded=True):
+        title = st.text_input(
+            "Topic title",
+            topic.title,
+            key=f"{prefix}_title",
+        )
+        summary = st.text_area(
+            "Summary",
+            topic.summary,
+            key=f"{prefix}_summary",
+        )
+        level = st.text_input(
+            "Level",
+            topic.level or "",
+            key=f"{prefix}_level",
+        )
+        tags = st.text_input(
+            "Tags (comma-separated)",
+            ", ".join(topic.tags),
+            key=f"{prefix}_tags",
+        )
+        rules = []
+        for rule_index, rule in enumerate(topic.rules):
+            rule_prefix = f"{prefix}_rule_{rule_index}"
+            st.markdown(f"#### Rule {rule_index + 1}")
+            name = st.text_input(
+                "Rule name",
+                rule.name,
+                key=f"{rule_prefix}_name",
+            )
+            explanation = st.text_area(
+                "Explanation",
+                rule.explanation,
+                key=f"{rule_prefix}_explanation",
+            )
+            pattern = st.text_input(
+                "Pattern",
+                rule.pattern,
+                key=f"{rule_prefix}_pattern",
+            )
+            verbs = st.text_area(
+                "Common verbs (one per line)",
+                "\n".join(rule.verbs),
+                key=f"{rule_prefix}_verbs",
+            )
+            correct_examples = st.text_area(
+                "Correct examples (one per line)",
+                "\n".join(rule.correct_examples),
+                key=f"{rule_prefix}_correct_examples",
+            )
+            incorrect_examples = []
+            if rule.incorrect_examples:
+                st.markdown("**Common mistakes**")
+            for example_index, example in enumerate(rule.incorrect_examples):
+                incorrect = st.text_input(
+                    f"Incorrect example {example_index + 1}",
+                    example.incorrect,
+                    key=f"{rule_prefix}_incorrect_{example_index}",
+                )
+                correct = st.text_input(
+                    f"Correction {example_index + 1}",
+                    example.correct,
+                    key=f"{rule_prefix}_correct_{example_index}",
+                )
+                reason = st.text_input(
+                    f"Reason {example_index + 1}",
+                    example.reason,
+                    key=f"{rule_prefix}_reason_{example_index}",
+                )
+                incorrect_examples.append(
+                    {
+                        "incorrect": incorrect,
+                        "correct": correct,
+                        "reason": reason,
+                    }
+                )
+            exceptions = st.text_area(
+                "Exceptions (one per line)",
+                "\n".join(rule.exceptions),
+                key=f"{rule_prefix}_exceptions",
+            )
+            notes = st.text_area(
+                "Notes (one per line)",
+                "\n".join(rule.notes),
+                key=f"{rule_prefix}_notes",
+            )
+            render_topic_suggestions(rule.topic_assignment)
+            rules.append(
+                {
+                    "name": name,
+                    "explanation": explanation,
+                    "pattern": pattern,
+                    "verbs": nonempty_lines(verbs),
+                    "correct_examples": nonempty_lines(correct_examples),
+                    "incorrect_examples": incorrect_examples,
+                    "exceptions": nonempty_lines(exceptions),
+                    "notes": nonempty_lines(notes),
+                    "topic_assignment": rule.topic_assignment.model_dump(),
+                }
+            )
+    return {
+        "title": title,
+        "summary": summary,
+        "level": level or None,
+        "rules": rules,
+        "tags": [tag.strip() for tag in tags.split(",") if tag.strip()],
+    }
 
 
 def lesson_topic_selector(key: str) -> list[int]:
@@ -66,31 +463,54 @@ def lesson_topic_selector(key: str) -> list[int]:
 def vocabulary_page() -> None:
     st.header("Learn vocabulary")
     st.write(
-        "Paste words or expressions. The model creates structured records "
+        "Enter words or expressions. The model creates structured records "
         "and suggests semantic topics."
     )
     selected_lesson_topics = lesson_topic_selector("vocabulary_lessons")
-    raw_input = st.text_area(
-        "Words and expressions",
-        height=220,
-        placeholder=(
-            "a safe pair of hands\n"
-            "to knock around with\n"
-            "to keep oneself to oneself"
-        ),
+    raw_inputs = render_input_fields(
+        kind="vocabulary",
+        label="Word or expression",
+        add_label="word",
+        placeholder="a safe pair of hands",
+        multiline=False,
     )
-    if st.button("Generate vocabulary", type="primary"):
-        if not raw_input.strip():
-            st.warning("Enter at least one word or expression.")
+    submitted_inputs = [value.strip() for value in raw_inputs]
+    if st.button("Validate vocabulary", type="primary"):
+        missing = [
+            str(index + 1)
+            for index, value in enumerate(submitted_inputs)
+            if not value
+        ]
+        if missing:
+            st.warning(
+                "Complete or delete empty fields: " + ", ".join(missing)
+            )
         else:
             try:
+                with st.spinner("Validating vocabulary..."):
+                    validate_inputs(
+                        kind="vocabulary",
+                        inputs=submitted_inputs,
+                        existing_values=[
+                            item["normalized_expression"]
+                            for item in database.list_vocabulary()
+                        ],
+                    )
+            except OllamaError as error:
+                st.error(str(error))
+    inputs_are_valid = render_input_validation(
+        "vocabulary",
+        submitted_inputs,
+    )
+    if inputs_are_valid:
+        if st.button("Generate vocabulary", type="primary"):
+            try:
                 generated = llm.generate_vocabulary(
-                    raw_input,
+                    "\n".join(submitted_inputs),
                     database.approved_topic_catalog("vocabulary"),
                 )
-                st.session_state["vocabulary_preview"] = formatted_json(
-                    generated
-                )
+                clear_session_keys("vocabulary_preview_")
+                st.session_state["vocabulary_preview"] = generated
                 st.session_state["vocabulary_lesson_ids"] = (
                     selected_lesson_topics
                 )
@@ -98,15 +518,16 @@ def vocabulary_page() -> None:
                 st.error(str(error))
 
     if preview := st.session_state.get("vocabulary_preview"):
-        edited = st.text_area(
-            "Review vocabulary and LLM topic suggestions",
-            value=preview,
-            height=500,
-            key="vocabulary_editor",
-        )
+        st.subheader("Review generated vocabulary")
+        edited_items = [
+            render_vocabulary_editor(item, index)
+            for index, item in enumerate(preview.items)
+        ]
         if st.button("Validate and save vocabulary"):
             try:
-                vocabulary = VocabularyImport.model_validate_json(edited)
+                vocabulary = VocabularyImport.model_validate(
+                    {"items": edited_items}
+                )
                 count = database.save_vocabulary(
                     vocabulary.items,
                     st.session_state.get("vocabulary_lesson_ids", []),
@@ -122,47 +543,87 @@ def vocabulary_page() -> None:
 def grammar_page() -> None:
     st.header("Learn grammar")
     st.write(
-        "Paste a grammar topic or your notes. The model classifies each "
+        "Enter grammar topics or notes. The model classifies each "
         "individual rule."
     )
     selected_lesson_topics = lesson_topic_selector("grammar_lessons")
-    raw_input = st.text_area(
-        "Grammar notes",
-        height=300,
+    raw_inputs = render_input_fields(
+        kind="grammar",
+        label="Grammar note",
+        add_label="grammar note",
         placeholder=(
             "Verb + to-infinitive: Some verbs are followed by to + verb..."
         ),
+        multiline=True,
     )
-    if st.button("Generate grammar", type="primary"):
-        if not raw_input.strip():
-            st.warning("Enter a grammar rule or topic.")
+    submitted_inputs = [value.strip() for value in raw_inputs]
+    if st.button("Validate grammar", type="primary"):
+        missing = [
+            str(index + 1)
+            for index, value in enumerate(submitted_inputs)
+            if not value
+        ]
+        if missing:
+            st.warning(
+                "Complete or delete empty fields: " + ", ".join(missing)
+            )
         else:
             try:
-                generated = llm.generate_grammar(
-                    raw_input,
-                    database.approved_topic_catalog("grammar"),
+                grammar_topics = database.list_grammar_topics()
+                existing_values = [
+                    topic["title"] for topic in grammar_topics
+                ] + [
+                    rule["name"]
+                    for topic in grammar_topics
+                    for rule in topic["rules"]
+                ]
+                with st.spinner("Validating grammar..."):
+                    validate_inputs(
+                        kind="grammar",
+                        inputs=submitted_inputs,
+                        existing_values=existing_values,
+                    )
+            except OllamaError as error:
+                st.error(str(error))
+    inputs_are_valid = render_input_validation(
+        "grammar",
+        submitted_inputs,
+    )
+    if inputs_are_valid:
+        if st.button("Generate grammar", type="primary"):
+            try:
+                approved_topics = database.approved_topic_catalog("grammar")
+                with st.spinner("Generating grammar..."):
+                    generated = [
+                        llm.generate_grammar(raw_input, approved_topics)
+                        for raw_input in submitted_inputs
+                    ]
+                clear_session_keys("grammar_preview_")
+                st.session_state["grammar_preview"] = generated
+                st.session_state["grammar_lesson_ids"] = (
+                    selected_lesson_topics
                 )
-                st.session_state["grammar_preview"] = formatted_json(generated)
-                st.session_state["grammar_lesson_ids"] = selected_lesson_topics
             except OllamaError as error:
                 st.error(str(error))
 
     if preview := st.session_state.get("grammar_preview"):
-        edited = st.text_area(
-            "Review grammar and LLM topic suggestions",
-            value=preview,
-            height=560,
-            key="grammar_editor",
-        )
+        st.subheader("Review generated grammar")
+        edited_topics = [
+            render_grammar_editor(topic, index)
+            for index, topic in enumerate(preview)
+        ]
         if st.button("Validate and save grammar"):
             try:
-                topic = GrammarTopic.model_validate_json(edited)
-                database.save_grammar_topic(
-                    topic,
+                topics = [
+                    GrammarTopic.model_validate(topic)
+                    for topic in edited_topics
+                ]
+                database.save_grammar_topics(
+                    topics,
                     st.session_state.get("grammar_lesson_ids", []),
                 )
-                logger.info("Saved grammar topic: %s", topic.title)
-                st.success(f'Saved grammar topic "{topic.title}".')
+                logger.info("Saved %d grammar topic(s)", len(topics))
+                st.success(f"Saved {len(topics)} grammar topic(s).")
                 del st.session_state["grammar_preview"]
                 st.rerun()
             except (ValidationError, ValueError, sqlite3.IntegrityError) as error:

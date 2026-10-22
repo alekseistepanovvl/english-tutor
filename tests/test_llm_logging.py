@@ -54,6 +54,49 @@ def test_structured_request_logs_status_without_logging_content(
     assert "private learner content" not in caplog.text
 
 
+def test_invalid_structured_response_logs_validation_reason(
+    monkeypatch,
+    caplog,
+) -> None:
+    response_body = {
+        "message": {
+            "content": json.dumps(
+                {
+                    "verdict": "correct",
+                    "score": 1,
+                }
+            )
+        }
+    }
+    monkeypatch.setattr(
+        "english_learning.llm.urlopen",
+        lambda request, timeout: BytesIO(json.dumps(response_body).encode()),
+    )
+    caplog.set_level(logging.WARNING, logger="english_learning.llm")
+    client = OllamaClient(
+        Settings(
+            model="test-model",
+            ollama_url="http://localhost:11434",
+            database_path=Path("test.sqlite3"),
+            learner_level="B2",
+            english_variant="British",
+        )
+    )
+
+    with pytest.raises(OllamaError):
+        client._structured_chat(
+            prompt_name="answer_evaluate.md",
+            user_content="private learner content",
+            response_model=AnswerEvaluation,
+            temperature=0,
+        )
+
+    assert "reason=ValidationError" in caplog.text
+    assert "explanation" in caplog.text
+    assert "review_again" in caplog.text
+    assert "private learner content" not in caplog.text
+
+
 def test_evaluate_answers_sends_one_batch_request(monkeypatch) -> None:
     response_body = {
         "message": {
@@ -159,4 +202,90 @@ def test_evaluate_answers_rejects_incomplete_batch(monkeypatch) -> None:
     with pytest.raises(OllamaError, match="exactly one evaluation"):
         client.evaluate_answers(
             [(2, exercise, "left"), (5, exercise, "left")]
+        )
+
+
+def test_validate_vocabulary_inputs_returns_indexed_results(
+    monkeypatch,
+) -> None:
+    response_body = {
+        "message": {
+            "content": json.dumps(
+                {
+                    "validations": [
+                        {
+                            "input_index": 0,
+                            "status": "corrected",
+                            "suggested_input": "commute",
+                            "explanation": "Corrected a spelling mistake.",
+                        },
+                        {
+                            "input_index": 2,
+                            "status": "valid",
+                            "explanation": "This is a valid expression.",
+                        },
+                    ]
+                }
+            )
+        }
+    }
+    requests = []
+
+    def fake_urlopen(request, timeout):
+        requests.append(request)
+        return BytesIO(json.dumps(response_body).encode())
+
+    monkeypatch.setattr("english_learning.llm.urlopen", fake_urlopen)
+    client = OllamaClient(
+        Settings(
+            model="test-model",
+            ollama_url="http://localhost:11434",
+            database_path=Path("test.sqlite3"),
+            learner_level="B2",
+            english_variant="British",
+        )
+    )
+
+    validations = client.validate_vocabulary_inputs(
+        [(0, "comute"), (2, "a safe pair of hands")]
+    )
+
+    assert validations[0].suggested_input == "commute"
+    assert validations[2].status == "valid"
+    assert len(requests) == 1
+
+
+def test_validate_inputs_rejects_incomplete_results(monkeypatch) -> None:
+    response_body = {
+        "message": {
+            "content": json.dumps(
+                {
+                    "validations": [
+                        {
+                            "input_index": 0,
+                            "status": "valid",
+                            "explanation": "This is valid.",
+                        }
+                    ]
+                }
+            )
+        }
+    }
+    monkeypatch.setattr(
+        "english_learning.llm.urlopen",
+        lambda request, timeout: BytesIO(json.dumps(response_body).encode()),
+    )
+    client = OllamaClient(
+        Settings(
+            model="test-model",
+            ollama_url="http://localhost:11434",
+            database_path=Path("test.sqlite3"),
+            learner_level="B2",
+            english_variant="British",
+        )
+    )
+
+    with pytest.raises(OllamaError, match="exactly one validation"):
+        client.validate_grammar_inputs(
+            [(0, "Use the present simple."), (1, "Use the past simple.")]
         )

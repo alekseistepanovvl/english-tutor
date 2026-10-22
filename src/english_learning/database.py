@@ -187,66 +187,93 @@ class Database:
         topic: GrammarTopic,
         lesson_topic_ids: list[int] | None = None,
     ) -> int:
+        return self.save_grammar_topics(
+            [topic],
+            lesson_topic_ids,
+        )[0]
+
+    def save_grammar_topics(
+        self,
+        topics: list[GrammarTopic],
+        lesson_topic_ids: list[int] | None = None,
+    ) -> list[int]:
         now = datetime.now(UTC).isoformat()
         with self.connect() as connection:
-            cursor = connection.execute(
+            return [
+                self._save_grammar_topic(
+                    connection,
+                    topic,
+                    lesson_topic_ids,
+                    now,
+                )
+                for topic in topics
+            ]
+
+    def _save_grammar_topic(
+        self,
+        connection: sqlite3.Connection,
+        topic: GrammarTopic,
+        lesson_topic_ids: list[int] | None,
+        now: str,
+    ) -> int:
+        cursor = connection.execute(
+            """
+            INSERT INTO grammar_topics (
+                title, summary, level, tags_json, created_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                topic.title,
+                topic.summary,
+                topic.level,
+                json.dumps(topic.tags, ensure_ascii=False),
+                now,
+            ),
+        )
+        topic_id = cursor.lastrowid
+        for position, rule in enumerate(topic.rules):
+            rule_cursor = connection.execute(
                 """
-                INSERT INTO grammar_topics (
-                    title, summary, level, tags_json, created_at
-                ) VALUES (?, ?, ?, ?, ?)
+                INSERT INTO grammar_rules (
+                    topic_id, position, name, explanation, pattern,
+                    verbs_json, correct_examples_json,
+                    incorrect_examples_json, exceptions_json, notes_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    topic.title,
-                    topic.summary,
-                    topic.level,
-                    json.dumps(topic.tags, ensure_ascii=False),
-                    now,
+                    topic_id,
+                    position,
+                    rule.name,
+                    rule.explanation,
+                    rule.pattern,
+                    json.dumps(rule.verbs, ensure_ascii=False),
+                    json.dumps(rule.correct_examples, ensure_ascii=False),
+                    json.dumps(
+                        [
+                            example.model_dump()
+                            for example in rule.incorrect_examples
+                        ],
+                        ensure_ascii=False,
+                    ),
+                    json.dumps(rule.exceptions, ensure_ascii=False),
+                    json.dumps(rule.notes, ensure_ascii=False),
                 ),
             )
-            topic_id = cursor.lastrowid
-            for position, rule in enumerate(topic.rules):
-                rule_cursor = connection.execute(
-                    """
-                    INSERT INTO grammar_rules (
-                        topic_id, position, name, explanation, pattern,
-                        verbs_json, correct_examples_json,
-                        incorrect_examples_json, exceptions_json, notes_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        topic_id,
-                        position,
-                        rule.name,
-                        rule.explanation,
-                        rule.pattern,
-                        json.dumps(rule.verbs, ensure_ascii=False),
-                        json.dumps(rule.correct_examples, ensure_ascii=False),
-                        json.dumps(
-                            [
-                                example.model_dump()
-                                for example in rule.incorrect_examples
-                            ],
-                            ensure_ascii=False,
-                        ),
-                        json.dumps(rule.exceptions, ensure_ascii=False),
-                        json.dumps(rule.notes, ensure_ascii=False),
-                    ),
-                )
-                grammar_rule_id = int(rule_cursor.lastrowid)
-                if lesson_topic_ids is not None:
-                    self._replace_lesson_grammar_memberships(
-                        connection,
-                        grammar_rule_id,
-                        lesson_topic_ids,
-                        now,
-                    )
-                self._save_topic_assignment(
+            grammar_rule_id = int(rule_cursor.lastrowid)
+            if lesson_topic_ids is not None:
+                self._replace_lesson_grammar_memberships(
                     connection,
-                    rule.topic_assignment,
-                    item_kind="grammar",
-                    item_id=grammar_rule_id,
-                    now=now,
+                    grammar_rule_id,
+                    lesson_topic_ids,
+                    now,
                 )
+            self._save_topic_assignment(
+                connection,
+                rule.topic_assignment,
+                item_kind="grammar",
+                item_id=grammar_rule_id,
+                now=now,
+            )
         return int(topic_id)
 
     def list_vocabulary(self) -> list[dict]:

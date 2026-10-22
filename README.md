@@ -13,7 +13,7 @@ not write directly to the database.
 - Import words, phrases, idioms, phrasal verbs, and collocations.
 - Generate meanings, patterns, register, examples, collocations, and mistakes.
 - Import grammar notes and split them into structured rules.
-- Preview and edit generated JSON before saving it.
+- Preview and edit generated vocabulary and grammar in human-readable forms.
 - Organise vocabulary and individual grammar rules into manual lesson topics.
 - Classify learning items with an approved LLM topic taxonomy.
 - Review, approve, merge, or reject new LLM topic proposals.
@@ -182,7 +182,8 @@ Streamlit normally opens:
 
 Application activity and Ollama request status are printed to the same
 terminal where Streamlit is running. Keep that terminal open to inspect
-startup, page navigation, saved content, and model request timing or failures.
+startup, page navigation, saved content, model request timing, and structured
+response validation reasons.
 
 ## Basic workflow
 
@@ -190,11 +191,14 @@ startup, page navigation, saved content, and model request timing or failures.
 
 1. Open **Vocabulary**.
 2. Optionally select one or more manual lesson topics.
-3. Paste one or more words or expressions.
-4. Select **Generate vocabulary**.
-5. Review the generated content and LLM topic suggestions.
-6. Correct anything inaccurate or unnatural.
-7. Select **Validate and save vocabulary**.
+3. Enter a word or expression in its own field.
+4. Select **＋ Add word** for each additional entry.
+5. Select **Validate vocabulary**.
+6. Accept suggested corrections, edit or delete invalid entries, and validate
+   again.
+7. Select **Generate vocabulary**.
+8. Review and edit the human-readable generated content and topic suggestions.
+9. Select **Validate and save vocabulary**.
 
 Saving an expression with the same normalised value updates the existing
 vocabulary record instead of creating a duplicate. Existing lesson memberships
@@ -204,10 +208,14 @@ are preserved when no replacement lesson selection is supplied.
 
 1. Open **Grammar**.
 2. Optionally select one or more manual lesson topics.
-3. Paste a grammar rule, lesson, or personal notes.
-4. Select **Generate grammar**.
-5. Review individual rule classifications and edit the structured data.
-6. Select **Validate and save grammar**.
+3. Enter a grammar rule, lesson, or personal note in its own field.
+4. Select **＋ Add grammar note** for each additional entry.
+5. Select **Validate grammar**.
+6. Accept suggested corrections, edit or delete invalid entries, and validate
+   again.
+7. Select **Generate grammar**.
+8. Review and edit each generated topic and its individual rules.
+9. Select **Validate and save grammar**.
 
 Grammar topics are currently inserted as new topics. Duplicate detection and
 topic versioning should be added before importing a large library.
@@ -314,9 +322,11 @@ src/english_learning/prompts/
 ```
 
 - `vocabulary_extract.md` creates vocabulary records.
+- `vocabulary_validate.md` validates vocabulary input before generation.
 - `grammar_extract.md` creates grammar topics and rules.
+- `grammar_validate.md` validates grammar input before generation.
 - `exercise_generate.md` creates exercises from selected saved material.
-- `answer_evaluate.md` assesses an answer.
+- `answers_evaluate.md` assesses a complete practice submission.
 
 Pydantic models in `domain.py` are converted into JSON schemas and sent through
 Ollama's `format` field. This is more reliable than requesting JSON only in

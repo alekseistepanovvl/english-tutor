@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 
 class StrictModel(BaseModel):
@@ -14,15 +20,30 @@ class VocabularyExample(StrictModel):
     context: str | None = None
 
 
-class ApprovedTopicAssignment(StrictModel):
-    slug: str = Field(min_length=1)
+class ConfidenceAssignment(StrictModel):
     confidence: float = Field(ge=0, le=1)
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def normalize_percentage_confidence(cls, value: object) -> object:
+        if isinstance(value, str) and value.strip().endswith("%"):
+            return float(value.strip().removesuffix("%")) / 100
+        if (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and 1 < value <= 100
+        ):
+            return value / 100
+        return value
+
+
+class ApprovedTopicAssignment(ConfidenceAssignment):
+    slug: str = Field(min_length=1)
     rationale: str = Field(min_length=1)
 
 
-class ProposedTopicAssignment(StrictModel):
+class ProposedTopicAssignment(ConfidenceAssignment):
     name: str = Field(min_length=1)
-    confidence: float = Field(ge=0, le=1)
     rationale: str = Field(min_length=1)
 
 
@@ -85,6 +106,23 @@ class GrammarTopic(StrictModel):
     level: str | None = None
     rules: list[GrammarRule] = Field(min_length=1)
     tags: list[str] = Field(default_factory=list)
+
+
+class InputValidation(StrictModel):
+    input_index: int = Field(ge=0)
+    status: Literal["valid", "corrected", "invalid"]
+    suggested_input: str | None = None
+    explanation: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_suggestion(self) -> "InputValidation":
+        if self.status == "corrected" and not self.suggested_input:
+            raise ValueError("Corrected input requires a suggestion.")
+        return self
+
+
+class InputValidationSet(StrictModel):
+    validations: list[InputValidation] = Field(min_length=1)
 
 
 class Exercise(StrictModel):

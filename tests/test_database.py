@@ -1,4 +1,7 @@
+import sqlite3
 from pathlib import Path
+
+import pytest
 
 from english_learning.database import Database
 from english_learning.domain import (
@@ -68,3 +71,55 @@ def test_save_and_list_grammar(tmp_path: Path) -> None:
     assert len(saved) == 1
     assert saved[0]["rules"][0]["pattern"] == "verb + to + base verb"
 
+
+def test_save_multiple_grammar_topics(tmp_path: Path) -> None:
+    database = Database(tmp_path / "test.sqlite3")
+    database.initialize()
+    topics = [
+        GrammarTopic(
+            title=f"Grammar topic {index}",
+            summary="A grammar summary.",
+            rules=[
+                GrammarRule(
+                    name=f"Rule {index}",
+                    explanation="A grammar explanation.",
+                    pattern="subject + verb",
+                    correct_examples=[
+                        "She works.",
+                        "They work.",
+                    ],
+                )
+            ],
+        )
+        for index in range(2)
+    ]
+
+    topic_ids = database.save_grammar_topics(topics)
+
+    assert len(topic_ids) == 2
+    assert {topic["title"] for topic in database.list_grammar_topics()} == {
+        "Grammar topic 1",
+        "Grammar topic 0",
+    }
+
+
+def test_save_multiple_grammar_topics_is_atomic(tmp_path: Path) -> None:
+    database = Database(tmp_path / "test.sqlite3")
+    database.initialize()
+    topic = GrammarTopic(
+        title="Verb forms",
+        summary="A grammar summary.",
+        rules=[
+            GrammarRule(
+                name="Present simple",
+                explanation="Use for regular actions.",
+                pattern="subject + base verb",
+                correct_examples=["I work.", "They work."],
+            )
+        ],
+    )
+
+    with pytest.raises(sqlite3.IntegrityError):
+        database.save_grammar_topics([topic, topic], [999])
+
+    assert database.list_grammar_topics() == []

@@ -17,7 +17,8 @@ For every supplied word or expression:
 - Assign zero or more approved topics using only supplied topic slugs.
 - Propose a concise reusable topic only when no approved topic fits.
 - Do not propose a synonym or spelling variation of an approved topic.
-- Include confidence and a short rationale for each topic assignment.
+- Include confidence as a decimal from 0 to 1, never as a percentage, and add
+  a short rationale for each topic assignment.
 - Use {english_variant} English spelling and usage.
 - Do not invent unsupported meanings.
 - Return only data matching the supplied JSON schema.
