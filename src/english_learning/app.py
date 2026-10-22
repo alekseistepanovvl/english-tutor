@@ -768,7 +768,7 @@ def progress_page() -> None:
         if summary["weakest_vocabulary"]:
             st.dataframe(
                 summary["weakest_vocabulary"],
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
         else:
@@ -778,7 +778,7 @@ def progress_page() -> None:
         if summary["weakest_grammar"]:
             st.dataframe(
                 summary["weakest_grammar"],
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
         else:
@@ -787,7 +787,7 @@ def progress_page() -> None:
     st.subheader("Lesson topics")
     st.dataframe(
         database.list_lesson_topics(),
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
 
