@@ -35,6 +35,9 @@ are not implemented yet.
 
 ## Architecture
 
+Detailed architecture documentation is available in
+[`docs/architecture/README.md`](docs/architecture/README.md).
+
 ```text
 Streamlit UI
     |
