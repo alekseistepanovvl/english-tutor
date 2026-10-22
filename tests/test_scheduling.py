@@ -87,6 +87,14 @@ def test_first_attempt_sets_mastery_from_answer_score() -> None:
     ) == 0.75
 
 
+def test_repeated_attempt_blends_previous_mastery_with_answer_score() -> None:
+    assert update_mastery(
+        previous_mastery=0.75,
+        attempt_count=1,
+        answer_score=0,
+    ) == 0.6
+
+
 def test_shuffle_exercises_reorders_without_losing_exercises() -> None:
     exercises = [
         Exercise(

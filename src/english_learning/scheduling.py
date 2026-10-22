@@ -7,6 +7,10 @@ from typing import Literal
 from english_learning.domain import Exercise
 
 
+MASTERY_OLD_WEIGHT = 0.8
+MASTERY_ANSWER_WEIGHT = 0.2
+
+
 def update_mastery(
     *,
     previous_mastery: float,

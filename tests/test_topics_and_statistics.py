@@ -99,6 +99,25 @@ def test_attempt_updates_vocabulary_statistics(tmp_path: Path) -> None:
     assert candidate["mastery_score"] == 1.0
     assert candidate["next_review_at"] is not None
 
+    database.save_attempt(
+        item_type="vocabulary",
+        item_key=None,
+        item_keys=[f"vocabulary:{item_id}"],
+        question="Complete another sentence.",
+        learner_answer="wrong answer",
+        verdict="incorrect",
+        score=0.0,
+        feedback="Try again.",
+    )
+
+    candidate = database.get_practice_candidates(source="Vocabulary")[0]
+    assert candidate["attempt_count"] == 2
+    assert candidate["mastery_score"] == 0.8
+    with database.connect() as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM exercise_attempts"
+        ).fetchone()[0] == 2
+
 
 def test_learning_content_returns_topic_vocabulary_and_grammar(
     tmp_path: Path,
