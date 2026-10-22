@@ -188,6 +188,11 @@ terminal where Streamlit is running. Keep that terminal open to inspect
 startup, page navigation, saved content, model request timing, and structured
 response validation reasons.
 
+Buttons that call Ollama display a visible loading indicator until the request
+finishes. Use **Clear current page** in the sidebar to reset temporary inputs,
+previews, or practice results for the selected page. This does not delete
+anything saved in SQLite.
+
 ## Basic workflow
 
 ### Add vocabulary

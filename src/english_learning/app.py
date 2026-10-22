@@ -55,6 +55,40 @@ def clear_session_keys(prefix: str) -> None:
             del st.session_state[key]
 
 
+def clear_current_page(page: str) -> None:
+    prefixes = {
+        "Vocabulary": ("vocabulary_",),
+        "Grammar": ("grammar_",),
+        "Learn": ("learning_",),
+        "Practice": ("practice_", "answer_"),
+        "Topics": (
+            "lesson_name_",
+            "lesson_description_",
+            "lesson_vocab_",
+            "lesson_grammar_",
+            "pending_name_",
+            "pending_merge_",
+        ),
+    }.get(page, ())
+    exact_keys = {
+        "Practice": {
+            "exercise_set",
+            "evaluations",
+            "recorded_exercises",
+        },
+        "Topics": {
+            "new_lesson_name",
+            "new_lesson_description",
+        },
+    }.get(page, set())
+    for key in list(st.session_state):
+        if key in exact_keys or any(
+            key.startswith(prefix) for prefix in prefixes
+        ):
+            del st.session_state[key]
+    logger.info("Cleared temporary state for %s page", page)
+
+
 def clear_input_workflow(kind: str) -> None:
     st.session_state.pop(f"{kind}_validation", None)
     st.session_state.pop(f"{kind}_validation_inputs", None)
@@ -505,10 +539,11 @@ def vocabulary_page() -> None:
     if inputs_are_valid:
         if st.button("Generate vocabulary", type="primary"):
             try:
-                generated = llm.generate_vocabulary(
-                    "\n".join(submitted_inputs),
-                    database.approved_topic_catalog("vocabulary"),
-                )
+                with st.spinner("Generating vocabulary..."):
+                    generated = llm.generate_vocabulary(
+                        "\n".join(submitted_inputs),
+                        database.approved_topic_catalog("vocabulary"),
+                    )
                 clear_session_keys("vocabulary_preview_")
                 st.session_state["vocabulary_preview"] = generated
                 st.session_state["vocabulary_lesson_ids"] = (
@@ -659,6 +694,7 @@ def practice_page() -> None:
         "Material",
         ["Vocabulary", "Grammar", "Mixed"],
         horizontal=True,
+        key="practice_material_type",
     )
     lesson_topics = database.list_lesson_topics()
     llm_topics = database.list_llm_topics(status="approved")
@@ -674,21 +710,30 @@ def practice_page() -> None:
     selected_lessons = st.multiselect(
         "Filter by lesson topics",
         lesson_names,
+        key="practice_lesson_topics",
     )
     selected_llm_topics = st.multiselect(
         "Filter by LLM topics",
         llm_names,
+        key="practice_llm_topics",
     )
     selection_strategy = st.radio(
         "Choose practice items",
         ["Random", "Least mastered"],
         horizontal=True,
+        key="practice_selection_strategy",
         help=(
             "Least mastered selects items with the lowest mastery first; "
             "unpractised items count as not yet mastered."
         ),
     )
-    exercise_count = st.slider("Number of exercises", 1, 10, 5)
+    exercise_count = st.slider(
+        "Number of exercises",
+        1,
+        10,
+        5,
+        key="practice_exercise_count",
+    )
 
     lesson_ids = [
         topic["id"]
@@ -723,10 +768,11 @@ def practice_page() -> None:
                 ),
             )
             try:
-                generated = llm.generate_exercises(
-                    selected_items,
-                    exercise_count,
-                )
+                with st.spinner("Generating practice exercises..."):
+                    generated = llm.generate_exercises(
+                        selected_items,
+                        exercise_count,
+                    )
                 generated.exercises = shuffle_exercises(generated.exercises)
                 session_id = database.create_practice_session(
                     source.lower(),
@@ -940,8 +986,15 @@ def topics_page() -> None:
 
     with lesson_tab:
         with st.form("create_lesson_topic"):
-            name = st.text_input("New lesson topic name")
-            description = st.text_area("Description", height=80)
+            name = st.text_input(
+                "New lesson topic name",
+                key="new_lesson_name",
+            )
+            description = st.text_area(
+                "Description",
+                height=80,
+                key="new_lesson_description",
+            )
             if st.form_submit_button("Create lesson topic"):
                 if not name.strip():
                     st.warning("Enter a topic name.")
@@ -1102,6 +1155,7 @@ def learning_page() -> None:
         "Topic source",
         ["Lesson topics", "LLM topics"],
         horizontal=True,
+        key="learning_topic_source",
     )
     if topic_source_label == "Lesson topics":
         topic_source = "lesson"
@@ -1115,7 +1169,11 @@ def learning_page() -> None:
         return
 
     topic_names = [topic["name"] for topic in topics]
-    selected_name = st.selectbox("Topic", topic_names)
+    selected_name = st.selectbox(
+        "Topic",
+        topic_names,
+        key="learning_topic",
+    )
     selected_topic = next(
         topic for topic in topics if topic["name"] == selected_name
     )
@@ -1123,6 +1181,7 @@ def learning_page() -> None:
         "Learning material",
         ["Vocabulary", "Grammar", "Both"],
         horizontal=True,
+        key="learning_material",
     )
     content = database.get_learning_content(
         topic_source=topic_source,
@@ -1314,6 +1373,13 @@ page = st.sidebar.radio(
         "Library",
         "Progress",
     ],
+    key="navigation_page",
+)
+st.sidebar.button(
+    "Clear current page",
+    on_click=clear_current_page,
+    args=(page,),
+    help="Clear temporary inputs and results on this page. Saved data remains.",
 )
 
 if not st.session_state.get("application_started"):
