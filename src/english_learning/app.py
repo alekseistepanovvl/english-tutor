@@ -1,10 +1,21 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 
 import streamlit as st
 from pydantic import ValidationError
+
+logger = logging.getLogger("english_learning")
+if not logger.handlers:
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    )
+    logger.addHandler(console_handler)
+    logger.propagate = False
+logger.setLevel(logging.INFO)
 
 from english_learning.config import load_settings
 from english_learning.database import Database
@@ -97,6 +108,7 @@ def vocabulary_page() -> None:
                     vocabulary.items,
                     st.session_state.get("vocabulary_lesson_ids", []),
                 )
+                logger.info("Saved %d vocabulary item(s)", count)
                 st.success(f"Saved {count} vocabulary item(s).")
                 del st.session_state["vocabulary_preview"]
                 st.rerun()
@@ -146,6 +158,7 @@ def grammar_page() -> None:
                     topic,
                     st.session_state.get("grammar_lesson_ids", []),
                 )
+                logger.info("Saved grammar topic: %s", topic.title)
                 st.success(f'Saved grammar topic "{topic.title}".')
                 del st.session_state["grammar_preview"]
                 st.rerun()
@@ -254,6 +267,11 @@ def practice_page() -> None:
                 st.session_state["practice_session_id"] = session_id
                 st.session_state["evaluations"] = {}
                 st.session_state["recorded_exercises"] = []
+                logger.info(
+                    "Started %s practice with %d selected item(s)",
+                    source.lower(),
+                    len(selected_items),
+                )
             except OllamaError as error:
                 st.error(str(error))
 
@@ -358,6 +376,10 @@ def practice_page() -> None:
                         ),
                     )
                     st.session_state["recorded_exercises"].append(index)
+                    logger.info(
+                        "Recorded practice answer verdict=%s",
+                        evaluation.verdict,
+                    )
                 except (OllamaError, ValueError, sqlite3.IntegrityError) as error:
                     st.error(str(error))
 
@@ -778,6 +800,13 @@ page = st.sidebar.radio(
         "Progress",
     ],
 )
+
+if not st.session_state.get("application_started"):
+    logger.info("Application session started with model=%s", settings.model)
+    st.session_state["application_started"] = True
+if st.session_state.get("logged_page") != page:
+    logger.info("Opened %s page", page)
+    st.session_state["logged_page"] = page
 
 if page == "Vocabulary":
     vocabulary_page()

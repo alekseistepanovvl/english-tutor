@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
+from time import perf_counter
 from typing import TypeVar
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -20,6 +22,7 @@ from english_learning.domain import (
 
 PROMPT_DIR = Path(__file__).with_name("prompts")
 ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
+logger = logging.getLogger(__name__)
 
 
 class OllamaError(RuntimeError):
@@ -169,15 +172,33 @@ class OllamaClient:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
+        started_at = perf_counter()
+        logger.info(
+            "Ollama request started task=%s model=%s",
+            prompt_name,
+            self.settings.model,
+        )
         try:
             with urlopen(request, timeout=180) as response:
                 body = json.load(response)
         except HTTPError as error:
             detail = error.read().decode("utf-8", errors="replace")
+            logger.warning(
+                "Ollama request failed task=%s status=%d elapsed=%.2fs",
+                prompt_name,
+                error.code,
+                perf_counter() - started_at,
+            )
             raise OllamaError(
                 f"Ollama returned HTTP {error.code}: {detail}"
             ) from error
         except (URLError, TimeoutError) as error:
+            logger.warning(
+                "Ollama request failed task=%s reason=%s elapsed=%.2fs",
+                prompt_name,
+                type(error).__name__,
+                perf_counter() - started_at,
+            )
             raise OllamaError(
                 "Could not contact Ollama. Confirm that it is installed, "
                 "running, and configured correctly."
@@ -185,10 +206,21 @@ class OllamaClient:
 
         try:
             content = body["message"]["content"]
-            return response_model.model_validate_json(content)
+            result = response_model.model_validate_json(content)
         except (KeyError, TypeError, ValueError) as error:
+            logger.warning(
+                "Ollama returned invalid structured data task=%s elapsed=%.2fs",
+                prompt_name,
+                perf_counter() - started_at,
+            )
             raise OllamaError(
                 "The model returned an invalid structured response. "
                 "Try again or choose a model with stronger instruction "
                 "following."
             ) from error
+        logger.info(
+            "Ollama request completed task=%s elapsed=%.2fs",
+            prompt_name,
+            perf_counter() - started_at,
+        )
+        return result

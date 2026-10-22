@@ -180,6 +180,10 @@ Streamlit normally opens:
 
 <http://localhost:8501>
 
+Application activity and Ollama request status are printed to the same
+terminal where Streamlit is running. Keep that terminal open to inspect
+startup, page navigation, saved content, and model request timing or failures.
+
 ## Basic workflow
 
 ### Add vocabulary
