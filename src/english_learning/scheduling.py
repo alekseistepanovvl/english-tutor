@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import math
 import random
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
-
-MASTERY_OLD_WEIGHT = 0.8
-MASTERY_ANSWER_WEIGHT = 0.2
-MAINTENANCE_FLOOR = 0.05
+from english_learning.domain import Exercise
 
 
 def update_mastery(
@@ -46,103 +43,27 @@ def next_review_at(
     return current + timedelta(days=days)
 
 
-def priority_score(candidate: dict, now: datetime | None = None) -> float:
-    current = now or datetime.now(UTC)
-    mastery = float(candidate.get("mastery_score") or 0)
-    attempts = int(candidate.get("attempt_count") or 0)
-    weakness = 1 - mastery
-
-    next_review_value = candidate.get("next_review_at")
-    if not next_review_value:
-        overdue = 1.0
-    else:
-        next_review = datetime.fromisoformat(next_review_value)
-        seconds_until = (next_review - current).total_seconds()
-        if seconds_until <= 0:
-            overdue = 1.0
-        else:
-            overdue = max(0.0, 1 - seconds_until / (14 * 86400))
-
-    last_practised_value = candidate.get("last_practised_at")
-    if not last_practised_value:
-        inactivity = 1.0
-    else:
-        last_practised = datetime.fromisoformat(last_practised_value)
-        inactivity = min(
-            1.0,
-            max(0.0, (current - last_practised).total_seconds() / 86400 / 30),
-        )
-
-    uncertainty = 1 / math.sqrt(attempts + 1)
-    return (
-        0.45 * weakness
-        + 0.30 * overdue
-        + 0.15 * inactivity
-        + 0.10 * uncertainty
-        + MAINTENANCE_FLOOR
-    )
-
-
-def select_adaptive_items(
+def select_practice_items(
     candidates: list[dict],
     count: int,
     *,
+    strategy: Literal["random", "least_mastered"],
     seed: int | None = None,
 ) -> list[dict]:
     if count <= 0 or not candidates:
         return []
-    if len(candidates) <= count:
-        return list(candidates)
-
     rng = random.Random(seed)
-    scored = [
-        {**candidate, "_priority": priority_score(candidate)}
-        for candidate in candidates
-    ]
-    weak = [
-        item
-        for item in scored
-        if item.get("attempt_count", 0) > 0
-        and float(item.get("mastery_score") or 0) < 0.6
-    ]
-    new_or_medium = [
-        item
-        for item in scored
-        if item.get("attempt_count", 0) == 0
-        or 0.6 <= float(item.get("mastery_score") or 0) < 0.85
-    ]
-    strong = [
-        item
-        for item in scored
-        if float(item.get("mastery_score") or 0) >= 0.85
-    ]
+    shuffled = rng.sample(candidates, len(candidates))
+    if strategy == "least_mastered":
+        shuffled.sort(key=lambda item: float(item.get("mastery_score") or 0))
+    return shuffled[:count]
 
-    targets = [
-        (weak, round(count * 0.6)),
-        (new_or_medium, round(count * 0.2)),
-        (strong, count - round(count * 0.6) - round(count * 0.2)),
-    ]
-    selected: list[dict] = []
-    selected_keys: set[str] = set()
 
-    def choose(pool: list[dict], wanted: int) -> None:
-        available = [
-            item for item in pool if item["item_key"] not in selected_keys
-        ]
-        for _ in range(min(wanted, len(available))):
-            weights = [item["_priority"] for item in available]
-            chosen = rng.choices(available, weights=weights, k=1)[0]
-            selected.append(chosen)
-            selected_keys.add(chosen["item_key"])
-            available.remove(chosen)
-
-    for pool, target in targets:
-        choose(pool, target)
-
-    if len(selected) < count:
-        choose(scored, count - len(selected))
-
-    for item in selected:
-        item.pop("_priority", None)
-    return selected
-
+def shuffle_exercises(
+    exercises: list[Exercise],
+    *,
+    seed: int | None = None,
+) -> list[Exercise]:
+    shuffled = list(exercises)
+    random.Random(seed).shuffle(shuffled)
+    return shuffled

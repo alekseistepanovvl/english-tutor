@@ -25,7 +25,10 @@ from english_learning.domain import (
     VocabularyImport,
 )
 from english_learning.llm import OllamaClient, OllamaError
-from english_learning.scheduling import select_adaptive_items
+from english_learning.scheduling import (
+    select_practice_items,
+    shuffle_exercises,
+)
 
 
 st.set_page_config(
@@ -215,6 +218,15 @@ def practice_page() -> None:
         "Filter by LLM topics",
         llm_names,
     )
+    selection_strategy = st.radio(
+        "Choose practice items",
+        ["Random", "Least mastered"],
+        horizontal=True,
+        help=(
+            "Least mastered selects items with the lowest mastery first; "
+            "unpractised items count as not yet mastered."
+        ),
+    )
     exercise_count = st.slider("Number of exercises", 1, 10, 5)
 
     lesson_ids = [
@@ -233,23 +245,28 @@ def practice_page() -> None:
         llm_topic_ids=llm_ids,
     )
     st.caption(
-        f"{len(candidates)} learning item(s) match the current filters. "
-        "Weak, new, and overdue items receive priority."
+        f"{len(candidates)} learning item(s) match the current filters."
     )
 
-    if st.button("Generate adaptive practice", type="primary"):
+    if st.button("Generate practice", type="primary"):
         if not candidates:
             st.warning("No saved learning items match the selected filters.")
         else:
-            selected_items = select_adaptive_items(
+            selected_items = select_practice_items(
                 candidates,
                 min(exercise_count, len(candidates)),
+                strategy=(
+                    "random"
+                    if selection_strategy == "Random"
+                    else "least_mastered"
+                ),
             )
             try:
                 generated = llm.generate_exercises(
                     selected_items,
                     exercise_count,
                 )
+                generated.exercises = shuffle_exercises(generated.exercises)
                 session_id = database.create_practice_session(
                     source.lower(),
                     {
@@ -316,7 +333,6 @@ def practice_page() -> None:
     st.header("Exercises")
     for index, exercise in enumerate(exercise_set.exercises):
         st.divider()
-        st.caption(exercise.instruction)
         st.subheader(f"{index + 1}. {exercise.question}")
         if exercise.cue:
             st.write(f"**Cue:** {exercise.cue}")

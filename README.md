@@ -241,9 +241,10 @@ exceptions, and notes.
 1. Open **Practice**.
 2. Select vocabulary, grammar, or mixed material.
 3. Optionally filter by one or several lesson topics and LLM topics.
-4. Select the exercise count.
-5. Generate the adaptive exercise set.
-6. Enter each answer and select **Check answer**.
+4. Choose random items or the items with the lowest mastery.
+5. Select the exercise count.
+6. Generate the practice set.
+7. Enter each answer and select **Check answer**.
 
 Multiple selected topics use union semantics: an item is included when it
 belongs to any selected topic. With no topic filter, all material of the
@@ -260,11 +261,14 @@ Exercises use sentences with a blank:
 - Grammar questions may include a bracketed cue such as `(go)` or
   `(refuse / help)`.
 
+Exercises are presented in a randomized order for each generated practice set.
+
 After checking an answer, the application displays whether it is correct,
 explains why, and shows the correct missing text when necessary.
 
-The selector favours weak, new, inactive, and overdue items. Strong items retain
-a non-zero maintenance probability so they are not forgotten. Questions,
+Random selection samples matching items uniformly. Least-mastered selection
+chooses the lowest mastery scores first, treating new items as unmastered.
+Questions,
 answers, scores, feedback, stable item references, mastery, streaks, and review
 dates are stored in SQLite.
 
