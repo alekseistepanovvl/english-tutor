@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from english_learning.config import Settings
 from english_learning.domain import (
     AnswerEvaluation,
+    AnswerEvaluationSet,
     Exercise,
     ExerciseSet,
     GrammarTopic,
@@ -127,20 +128,50 @@ class OllamaClient:
         exercise: Exercise,
         learner_answer: str,
     ) -> AnswerEvaluation:
+        return self.evaluate_answers(
+            [(0, exercise, learner_answer)]
+        )[0]
+
+    def evaluate_answers(
+        self,
+        answers: list[tuple[int, Exercise, str]],
+    ) -> dict[int, AnswerEvaluation]:
+        if not answers:
+            return {}
         content = json.dumps(
             {
-                "exercise": exercise.model_dump(),
-                "learner_answer": learner_answer,
+                "answers": [
+                    {
+                        "exercise_index": index,
+                        "exercise": exercise.model_dump(),
+                        "learner_answer": learner_answer,
+                    }
+                    for index, exercise, learner_answer in answers
+                ]
             },
             ensure_ascii=False,
             indent=2,
         )
-        return self._structured_chat(
-            prompt_name="answer_evaluate.md",
+        result = self._structured_chat(
+            prompt_name="answers_evaluate.md",
             user_content=content,
-            response_model=AnswerEvaluation,
+            response_model=AnswerEvaluationSet,
             temperature=0,
         )
+        expected_indexes = {index for index, _, _ in answers}
+        evaluations = {
+            item.exercise_index: item.evaluation
+            for item in result.evaluations
+        }
+        if (
+            len(evaluations) != len(result.evaluations)
+            or set(evaluations) != expected_indexes
+        ):
+            raise OllamaError(
+                "The model did not return exactly one evaluation for each "
+                "submitted answer."
+            )
+        return evaluations
 
     def _structured_chat(
         self,

@@ -122,3 +122,12 @@ class AnswerEvaluation(StrictModel):
     explanation: str = Field(min_length=1)
     error_categories: list[str] = Field(default_factory=list)
     review_again: bool
+
+
+class IndexedAnswerEvaluation(StrictModel):
+    exercise_index: int = Field(ge=0)
+    evaluation: AnswerEvaluation
+
+
+class AnswerEvaluationSet(StrictModel):
+    evaluations: list[IndexedAnswerEvaluation] = Field(min_length=1)

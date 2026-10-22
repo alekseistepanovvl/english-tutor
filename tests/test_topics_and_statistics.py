@@ -2,6 +2,8 @@ import json
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from english_learning.database import SCHEMA, Database
 from english_learning.domain import (
     ApprovedTopicAssignment,
@@ -117,6 +119,70 @@ def test_attempt_updates_vocabulary_statistics(tmp_path: Path) -> None:
         assert connection.execute(
             "SELECT COUNT(*) FROM exercise_attempts"
         ).fetchone()[0] == 2
+
+
+def test_save_attempts_records_complete_practice_set(tmp_path: Path) -> None:
+    database = Database(tmp_path / "test.sqlite3")
+    database.initialize()
+    database.save_vocabulary([vocabulary_item()])
+    item_id = database.list_vocabulary()[0]["id"]
+    attempt = {
+        "item_type": "vocabulary",
+        "item_key": None,
+        "item_keys": [f"vocabulary:{item_id}"],
+        "question": "Complete the sentence.",
+        "learner_answer": "a safe pair of hands",
+        "verdict": "correct",
+        "score": 1.0,
+        "feedback": "Correct.",
+    }
+
+    attempt_ids = database.save_attempts(
+        [attempt, {**attempt, "question": "Complete another sentence."}]
+    )
+
+    assert len(attempt_ids) == 2
+    candidate = database.get_practice_candidates(source="Vocabulary")[0]
+    assert candidate["attempt_count"] == 2
+    with database.connect() as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM exercise_attempts"
+        ).fetchone()[0] == 2
+
+
+def test_save_attempts_rolls_back_complete_set_on_error(
+    tmp_path: Path,
+) -> None:
+    database = Database(tmp_path / "test.sqlite3")
+    database.initialize()
+    database.save_vocabulary([vocabulary_item()])
+    item_id = database.list_vocabulary()[0]["id"]
+    attempt = {
+        "item_type": "vocabulary",
+        "item_key": None,
+        "item_keys": [f"vocabulary:{item_id}"],
+        "question": "Complete the sentence.",
+        "learner_answer": "a safe pair of hands",
+        "verdict": "correct",
+        "score": 1.0,
+        "feedback": "Correct.",
+    }
+
+    with pytest.raises(ValueError, match="Unsupported learning item type"):
+        database.save_attempts(
+            [
+                attempt,
+                {
+                    **attempt,
+                    "item_keys": ["unsupported:1"],
+                },
+            ]
+        )
+
+    with database.connect() as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM exercise_attempts"
+        ).fetchone()[0] == 0
 
 
 def test_learning_content_returns_topic_vocabulary_and_grammar(

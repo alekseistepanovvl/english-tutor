@@ -826,7 +826,57 @@ class Database:
     ) -> int:
         resolved_keys = item_keys or ([item_key] if item_key else [])
         with self.connect() as connection:
-            cursor = connection.execute(
+            return self._save_attempt(
+                connection,
+                item_type=item_type,
+                item_key=item_key,
+                resolved_keys=resolved_keys,
+                question=question,
+                learner_answer=learner_answer,
+                verdict=verdict,
+                score=score,
+                feedback=feedback,
+                practice_session_id=practice_session_id,
+            )
+
+    def save_attempts(self, attempts: list[dict]) -> list[int]:
+        with self.connect() as connection:
+            return [
+                self._save_attempt(
+                    connection,
+                    item_type=attempt["item_type"],
+                    item_key=attempt.get("item_key"),
+                    resolved_keys=attempt.get("item_keys")
+                    or (
+                        [attempt["item_key"]]
+                        if attempt.get("item_key")
+                        else []
+                    ),
+                    question=attempt["question"],
+                    learner_answer=attempt["learner_answer"],
+                    verdict=attempt["verdict"],
+                    score=attempt["score"],
+                    feedback=attempt["feedback"],
+                    practice_session_id=attempt.get("practice_session_id"),
+                )
+                for attempt in attempts
+            ]
+
+    def _save_attempt(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        item_type: str,
+        item_key: str | None,
+        resolved_keys: list[str],
+        question: str,
+        learner_answer: str,
+        verdict: str,
+        score: float,
+        feedback: str,
+        practice_session_id: int | None,
+    ) -> int:
+        cursor = connection.execute(
                 """
                 INSERT INTO exercise_attempts (
                     item_type, item_key, question, learner_answer,
@@ -844,18 +894,18 @@ class Database:
                     datetime.now(UTC).isoformat(),
                     practice_session_id,
                 ),
+        )
+        attempt_id = int(cursor.lastrowid)
+        for position, key in enumerate(resolved_keys):
+            self._link_attempt_and_update_statistics(
+                connection,
+                attempt_id,
+                key,
+                is_primary=position == 0,
+                verdict=verdict,
+                score=score,
             )
-            attempt_id = int(cursor.lastrowid)
-            for position, key in enumerate(resolved_keys):
-                self._link_attempt_and_update_statistics(
-                    connection,
-                    attempt_id,
-                    key,
-                    is_primary=position == 0,
-                    verdict=verdict,
-                    score=score,
-                )
-            return attempt_id
+        return attempt_id
 
     def _replace_lesson_vocabulary_memberships(
         self,

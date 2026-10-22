@@ -284,6 +284,9 @@ def practice_page() -> None:
                 st.session_state["practice_session_id"] = session_id
                 st.session_state["evaluations"] = {}
                 st.session_state["recorded_exercises"] = []
+                for key in list(st.session_state):
+                    if key.startswith("answer_"):
+                        del st.session_state[key]
                 logger.info(
                     "Started %s practice with %d selected item(s)",
                     source.lower(),
@@ -331,73 +334,29 @@ def practice_page() -> None:
                         st.write(f"- {example}")
 
     st.header("Exercises")
+    answers: dict[int, str | None] = {}
     for index, exercise in enumerate(exercise_set.exercises):
         st.divider()
         st.subheader(f"{index + 1}. {exercise.question}")
         if exercise.cue:
             st.write(f"**Cue:** {exercise.cue}")
+        already_recorded = index in st.session_state["recorded_exercises"]
         if exercise.options:
             answer = st.radio(
                 "Choose an answer",
                 exercise.options,
                 key=f"answer_{index}",
                 index=None,
+                disabled=already_recorded,
             )
         else:
             answer = st.text_input(
                 "Text for the blank",
                 key=f"answer_{index}",
                 placeholder="Type only the missing word or phrase",
+                disabled=already_recorded,
             )
-
-        already_recorded = index in st.session_state["recorded_exercises"]
-        if st.button(
-            "Check answer",
-            key=f"check_{index}",
-            disabled=already_recorded,
-        ):
-            if not answer:
-                st.warning("Enter an answer first.")
-            else:
-                try:
-                    if exercise.options:
-                        evaluation = deterministic_evaluation(
-                            str(answer),
-                            exercise.expected_answers,
-                        )
-                    else:
-                        evaluation = llm.evaluate_answer(
-                            exercise,
-                            str(answer),
-                        )
-                    st.session_state["evaluations"][index] = evaluation
-                    item_keys = [
-                        exercise.primary_item_key,
-                        *exercise.supporting_item_keys,
-                    ]
-                    database.save_attempt(
-                        item_type=st.session_state.get(
-                            "practice_source",
-                            source,
-                        ).lower(),
-                        item_key=None,
-                        item_keys=item_keys,
-                        question=exercise.question,
-                        learner_answer=str(answer),
-                        verdict=evaluation.verdict,
-                        score=evaluation.score,
-                        feedback=evaluation.explanation,
-                        practice_session_id=st.session_state.get(
-                            "practice_session_id"
-                        ),
-                    )
-                    st.session_state["recorded_exercises"].append(index)
-                    logger.info(
-                        "Recorded practice answer verdict=%s",
-                        evaluation.verdict,
-                    )
-                except (OllamaError, ValueError, sqlite3.IntegrityError) as error:
-                    st.error(str(error))
+        answers[index] = str(answer) if answer else None
 
         evaluation = st.session_state["evaluations"].get(index)
         if evaluation:
@@ -420,6 +379,85 @@ def practice_page() -> None:
                     "**Accepted answer(s):** "
                     + ", ".join(exercise.expected_answers)
                 )
+
+    all_recorded = len(st.session_state["recorded_exercises"]) == len(
+        exercise_set.exercises
+    )
+    if st.button(
+        "Check all answers",
+        type="primary",
+        disabled=all_recorded,
+    ):
+        pending_indexes = [
+            index
+            for index in range(len(exercise_set.exercises))
+            if index not in st.session_state["recorded_exercises"]
+        ]
+        missing_indexes = [
+            index for index in pending_indexes if not answers[index]
+        ]
+        if missing_indexes:
+            question_numbers = ", ".join(
+                str(index + 1) for index in missing_indexes
+            )
+            st.warning(
+                f"Answer every exercise first. Missing: {question_numbers}."
+            )
+        else:
+            try:
+                evaluations: dict[int, AnswerEvaluation] = {}
+                semantic_answers = []
+                for index in pending_indexes:
+                    exercise = exercise_set.exercises[index]
+                    answer = answers[index]
+                    if exercise.options:
+                        evaluations[index] = deterministic_evaluation(
+                            answer or "",
+                            exercise.expected_answers,
+                        )
+                    else:
+                        semantic_answers.append(
+                            (index, exercise, answer or "")
+                        )
+                with st.spinner("Checking all answers..."):
+                    evaluations.update(
+                        llm.evaluate_answers(semantic_answers)
+                    )
+                    attempts = []
+                    for index in pending_indexes:
+                        exercise = exercise_set.exercises[index]
+                        evaluation = evaluations[index]
+                        attempts.append(
+                            {
+                                "item_type": st.session_state.get(
+                                    "practice_source",
+                                    source,
+                                ).lower(),
+                                "item_key": None,
+                                "item_keys": [
+                                    exercise.primary_item_key,
+                                    *exercise.supporting_item_keys,
+                                ],
+                                "question": exercise.question,
+                                "learner_answer": answers[index] or "",
+                                "verdict": evaluation.verdict,
+                                "score": evaluation.score,
+                                "feedback": evaluation.explanation,
+                                "practice_session_id": st.session_state.get(
+                                    "practice_session_id"
+                                ),
+                            }
+                        )
+                    database.save_attempts(attempts)
+                st.session_state["evaluations"].update(evaluations)
+                st.session_state["recorded_exercises"].extend(pending_indexes)
+                logger.info(
+                    "Recorded %d practice answer(s)",
+                    len(pending_indexes),
+                )
+                st.rerun()
+            except (OllamaError, ValueError, sqlite3.IntegrityError) as error:
+                st.error(str(error))
 
 
 def topics_page() -> None:

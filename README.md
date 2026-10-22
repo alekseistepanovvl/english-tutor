@@ -244,7 +244,7 @@ exceptions, and notes.
 4. Choose random items or the items with the lowest mastery.
 5. Select the exercise count.
 6. Generate the practice set.
-7. Enter each answer and select **Check answer**.
+7. Enter all answers and select **Check all answers**.
 
 Multiple selected topics use union semantics: an item is included when it
 belongs to any selected topic. With no topic filter, all material of the
@@ -263,8 +263,8 @@ Exercises use sentences with a blank:
 
 Exercises are presented in a randomized order for each generated practice set.
 
-After checking an answer, the application displays whether it is correct,
-explains why, and shows the correct missing text when necessary.
+After checking the set, the application displays the result beneath every
+exercise, explains why, and shows the correct missing text when necessary.
 
 Random selection samples matching items uniformly. Least-mastered selection
 chooses the lowest mastery scores first, treating new items as unmastered.

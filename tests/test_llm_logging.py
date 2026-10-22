@@ -3,9 +3,11 @@ import logging
 from io import BytesIO
 from pathlib import Path
 
+import pytest
+
 from english_learning.config import Settings
-from english_learning.domain import AnswerEvaluation
-from english_learning.llm import OllamaClient
+from english_learning.domain import AnswerEvaluation, Exercise
+from english_learning.llm import OllamaClient, OllamaError
 
 
 def test_structured_request_logs_status_without_logging_content(
@@ -50,3 +52,111 @@ def test_structured_request_logs_status_without_logging_content(
     assert "Ollama request started task=answer_evaluate.md" in caplog.text
     assert "Ollama request completed task=answer_evaluate.md" in caplog.text
     assert "private learner content" not in caplog.text
+
+
+def test_evaluate_answers_sends_one_batch_request(monkeypatch) -> None:
+    response_body = {
+        "message": {
+            "content": json.dumps(
+                {
+                    "evaluations": [
+                        {
+                            "exercise_index": index,
+                            "evaluation": {
+                                "verdict": "correct",
+                                "score": 1,
+                                "explanation": "Correct.",
+                                "review_again": False,
+                            },
+                        }
+                        for index in (2, 5)
+                    ]
+                }
+            )
+        }
+    }
+    requests = []
+
+    def fake_urlopen(request, timeout):
+        requests.append(request)
+        return BytesIO(json.dumps(response_body).encode())
+
+    monkeypatch.setattr("english_learning.llm.urlopen", fake_urlopen)
+    client = OllamaClient(
+        Settings(
+            model="test-model",
+            ollama_url="http://localhost:11434",
+            database_path=Path("test.sqlite3"),
+            learner_level="B2",
+            english_variant="British",
+        )
+    )
+    exercise = Exercise(
+        exercise_type="fill_blank",
+        instruction="Complete the sentence.",
+        question="She ___.",
+        expected_answers=["left"],
+        explanation="Use the past tense.",
+        primary_item_key="grammar_rule:1",
+    )
+
+    evaluations = client.evaluate_answers(
+        [(2, exercise, "left"), (5, exercise, "left")]
+    )
+
+    assert set(evaluations) == {2, 5}
+    assert len(requests) == 1
+    payload = json.loads(requests[0].data)
+    user_content = json.loads(payload["messages"][1]["content"])
+    assert [item["exercise_index"] for item in user_content["answers"]] == [
+        2,
+        5,
+    ]
+
+
+def test_evaluate_answers_rejects_incomplete_batch(monkeypatch) -> None:
+    response_body = {
+        "message": {
+            "content": json.dumps(
+                {
+                    "evaluations": [
+                        {
+                            "exercise_index": 2,
+                            "evaluation": {
+                                "verdict": "correct",
+                                "score": 1,
+                                "explanation": "Correct.",
+                                "review_again": False,
+                            },
+                        }
+                    ]
+                }
+            )
+        }
+    }
+    monkeypatch.setattr(
+        "english_learning.llm.urlopen",
+        lambda request, timeout: BytesIO(json.dumps(response_body).encode()),
+    )
+    client = OllamaClient(
+        Settings(
+            model="test-model",
+            ollama_url="http://localhost:11434",
+            database_path=Path("test.sqlite3"),
+            learner_level="B2",
+            english_variant="British",
+        )
+    )
+    exercise = Exercise(
+        exercise_type="fill_blank",
+        instruction="Complete the sentence.",
+        question="She ___.",
+        expected_answers=["left"],
+        explanation="Use the past tense.",
+        primary_item_key="grammar_rule:1",
+    )
+
+    with pytest.raises(OllamaError, match="exactly one evaluation"):
+        client.evaluate_answers(
+            [(2, exercise, "left"), (5, exercise, "left")]
+        )
