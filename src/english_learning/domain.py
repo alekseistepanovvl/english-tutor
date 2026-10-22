@@ -48,8 +48,14 @@ class ProposedTopicAssignment(ConfidenceAssignment):
 
 
 class TopicAssignment(StrictModel):
-    approved_topics: list[ApprovedTopicAssignment] = Field(default_factory=list)
-    proposed_topics: list[ProposedTopicAssignment] = Field(default_factory=list)
+    approved_topics: list[ApprovedTopicAssignment] = Field(
+        default_factory=list,
+        max_length=3,
+    )
+    proposed_topics: list[ProposedTopicAssignment] = Field(
+        default_factory=list,
+        max_length=1,
+    )
 
 
 class VocabularyItem(StrictModel):
@@ -71,10 +77,10 @@ class VocabularyItem(StrictModel):
         "slang",
     ] = Field(default="neutral", alias="register")
     level: Literal["A1", "A2", "B1", "B2", "C1", "C2"] | None = None
-    examples: list[VocabularyExample] = Field(min_length=2)
-    collocations: list[str] = Field(default_factory=list)
-    common_mistakes: list[str] = Field(default_factory=list)
-    tags: list[str] = Field(default_factory=list)
+    examples: list[VocabularyExample] = Field(min_length=2, max_length=3)
+    collocations: list[str] = Field(default_factory=list, max_length=5)
+    common_mistakes: list[str] = Field(default_factory=list, max_length=3)
+    tags: list[str] = Field(default_factory=list, max_length=5)
     topic_assignment: TopicAssignment = Field(default_factory=TopicAssignment)
 
 
@@ -92,11 +98,14 @@ class GrammarRule(StrictModel):
     name: str = Field(min_length=1)
     explanation: str = Field(min_length=1)
     pattern: str = Field(min_length=1)
-    verbs: list[str] = Field(default_factory=list)
-    correct_examples: list[str] = Field(min_length=2)
-    incorrect_examples: list[IncorrectExample] = Field(default_factory=list)
-    exceptions: list[str] = Field(default_factory=list)
-    notes: list[str] = Field(default_factory=list)
+    verbs: list[str] = Field(default_factory=list, max_length=10)
+    correct_examples: list[str] = Field(min_length=2, max_length=3)
+    incorrect_examples: list[IncorrectExample] = Field(
+        default_factory=list,
+        max_length=2,
+    )
+    exceptions: list[str] = Field(default_factory=list, max_length=3)
+    notes: list[str] = Field(default_factory=list, max_length=3)
     topic_assignment: TopicAssignment = Field(default_factory=TopicAssignment)
 
 
@@ -104,8 +113,17 @@ class GrammarTopic(StrictModel):
     title: str = Field(min_length=1)
     summary: str = Field(min_length=1)
     level: str | None = None
-    rules: list[GrammarRule] = Field(min_length=1)
-    tags: list[str] = Field(default_factory=list)
+    rules: list[GrammarRule] = Field(min_length=1, max_length=5)
+    tags: list[str] = Field(default_factory=list, max_length=5)
+
+
+class IndexedGrammarTopic(StrictModel):
+    input_index: int = Field(ge=0)
+    topic: GrammarTopic
+
+
+class GrammarImport(StrictModel):
+    topics: list[IndexedGrammarTopic] = Field(min_length=1)
 
 
 class InputValidation(StrictModel):
@@ -150,7 +168,7 @@ class Exercise(StrictModel):
 
 
 class ExerciseSet(StrictModel):
-    exercises: list[Exercise] = Field(min_length=1)
+    exercises: list[Exercise] = Field(min_length=1, max_length=10)
 
 
 class AnswerEvaluation(StrictModel):

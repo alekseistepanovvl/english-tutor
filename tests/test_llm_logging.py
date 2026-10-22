@@ -15,6 +15,11 @@ def test_structured_request_logs_status_without_logging_content(
     caplog,
 ) -> None:
     response_body = {
+        "load_duration": 500_000_000,
+        "prompt_eval_count": 100,
+        "prompt_eval_duration": 2_000_000_000,
+        "eval_count": 40,
+        "eval_duration": 4_000_000_000,
         "message": {
             "content": json.dumps(
                 {
@@ -26,10 +31,13 @@ def test_structured_request_logs_status_without_logging_content(
             )
         }
     }
-    monkeypatch.setattr(
-        "english_learning.llm.urlopen",
-        lambda request, timeout: BytesIO(json.dumps(response_body).encode()),
-    )
+    requests = []
+
+    def fake_urlopen(request, timeout):
+        requests.append(request)
+        return BytesIO(json.dumps(response_body).encode())
+
+    monkeypatch.setattr("english_learning.llm.urlopen", fake_urlopen)
     caplog.set_level(logging.INFO, logger="english_learning.llm")
     client = OllamaClient(
         Settings(
@@ -46,10 +54,17 @@ def test_structured_request_logs_status_without_logging_content(
         user_content="private learner content",
         response_model=AnswerEvaluation,
         temperature=0,
+        max_output_tokens=384,
     )
 
     assert result.verdict == "correct"
+    payload = json.loads(requests[0].data)
+    assert payload["think"] is False
+    assert payload["keep_alive"] == "30m"
+    assert payload["options"]["num_predict"] == 384
     assert "Ollama request started task=answer_evaluate.md" in caplog.text
+    assert "generated_tokens=40" in caplog.text
+    assert "tokens_per_second=10.00" in caplog.text
     assert "Ollama request completed task=answer_evaluate.md" in caplog.text
     assert "private learner content" not in caplog.text
 
@@ -89,6 +104,7 @@ def test_invalid_structured_response_logs_validation_reason(
             user_content="private learner content",
             response_model=AnswerEvaluation,
             temperature=0,
+            max_output_tokens=384,
         )
 
     assert "reason=ValidationError" in caplog.text
@@ -288,4 +304,121 @@ def test_validate_inputs_rejects_incomplete_results(monkeypatch) -> None:
     with pytest.raises(OllamaError, match="exactly one validation"):
         client.validate_grammar_inputs(
             [(0, "Use the present simple."), (1, "Use the past simple.")]
+        )
+
+
+def grammar_topic(title: str) -> dict:
+    return {
+        "title": title,
+        "summary": f"Summary for {title}.",
+        "level": "B2",
+        "rules": [
+            {
+                "name": f"{title} rule",
+                "explanation": "A concise explanation.",
+                "pattern": "subject + verb",
+                "verbs": [],
+                "correct_examples": [
+                    "This is the first example.",
+                    "This is the second example.",
+                ],
+                "incorrect_examples": [],
+                "exceptions": [],
+                "notes": [],
+                "topic_assignment": {
+                    "approved_topics": [],
+                    "proposed_topics": [],
+                },
+            }
+        ],
+        "tags": [],
+    }
+
+
+def test_generate_grammars_sends_one_indexed_batch(monkeypatch) -> None:
+    response_body = {
+        "message": {
+            "content": json.dumps(
+                {
+                    "topics": [
+                        {
+                            "input_index": 1,
+                            "topic": grammar_topic("Past simple"),
+                        },
+                        {
+                            "input_index": 0,
+                            "topic": grammar_topic("Present simple"),
+                        },
+                    ]
+                }
+            )
+        }
+    }
+    requests = []
+
+    def fake_urlopen(request, timeout):
+        requests.append(request)
+        return BytesIO(json.dumps(response_body).encode())
+
+    monkeypatch.setattr("english_learning.llm.urlopen", fake_urlopen)
+    client = OllamaClient(
+        Settings(
+            model="test-model",
+            ollama_url="http://localhost:11434",
+            database_path=Path("test.sqlite3"),
+            learner_level="B2",
+            english_variant="British",
+        )
+    )
+
+    topics = client.generate_grammars(
+        ["Use the present simple.", "Use the past simple."],
+        [{"slug": "tenses", "name": "Tenses"}],
+    )
+
+    assert [topic.title for topic in topics] == [
+        "Present simple",
+        "Past simple",
+    ]
+    assert len(requests) == 1
+    payload = json.loads(requests[0].data)
+    user_content = json.loads(payload["messages"][1]["content"])
+    assert [
+        item["input_index"] for item in user_content["input_notes"]
+    ] == [0, 1]
+    assert payload["options"]["num_predict"] == 4096
+
+
+def test_generate_grammars_rejects_incomplete_batch(monkeypatch) -> None:
+    response_body = {
+        "message": {
+            "content": json.dumps(
+                {
+                    "topics": [
+                        {
+                            "input_index": 0,
+                            "topic": grammar_topic("Present simple"),
+                        }
+                    ]
+                }
+            )
+        }
+    }
+    monkeypatch.setattr(
+        "english_learning.llm.urlopen",
+        lambda request, timeout: BytesIO(json.dumps(response_body).encode()),
+    )
+    client = OllamaClient(
+        Settings(
+            model="test-model",
+            ollama_url="http://localhost:11434",
+            database_path=Path("test.sqlite3"),
+            learner_level="B2",
+            english_variant="British",
+        )
+    )
+
+    with pytest.raises(OllamaError, match="exactly one grammar topic"):
+        client.generate_grammars(
+            ["Use the present simple.", "Use the past simple."]
         )

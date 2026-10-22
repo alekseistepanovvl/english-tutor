@@ -30,7 +30,10 @@ from english_learning.scheduling import (
     select_practice_items,
     shuffle_exercises,
 )
-from english_learning.validation import find_duplicate_inputs
+from english_learning.validation import (
+    find_duplicate_inputs,
+    validation_cache_key,
+)
 
 
 st.set_page_config(
@@ -86,6 +89,16 @@ def clear_current_page(page: str) -> None:
             key.startswith(prefix) for prefix in prefixes
         ):
             del st.session_state[key]
+    validation_kind = {
+        "Vocabulary": "vocabulary",
+        "Grammar": "grammar",
+    }.get(page)
+    if validation_kind:
+        validation_cache = st.session_state.get(
+            "input_validation_cache",
+            {},
+        )
+        validation_cache.pop(validation_kind, None)
     logger.info("Cleared temporary state for %s page", page)
 
 
@@ -218,21 +231,47 @@ def validate_inputs(
     existing_values: list[str],
 ) -> None:
     duplicate_indexes = find_duplicate_inputs(inputs, existing_values)
-    pending = [
-        (index, value)
-        for index, value in enumerate(inputs)
-        if index not in duplicate_indexes
-    ]
+    validation_cache = st.session_state.setdefault(
+        "input_validation_cache",
+        {},
+    ).setdefault(kind, {})
+    validations: dict[int, InputValidation] = {}
+    pending = []
+    cache_keys: dict[int, str] = {}
+    for index, value in enumerate(inputs):
+        if index in duplicate_indexes:
+            continue
+        cache_key = validation_cache_key(
+            kind=kind,
+            model=settings.model,
+            value=value,
+            existing_values=existing_values,
+        )
+        cache_keys[index] = cache_key
+        cached = validation_cache.get(cache_key)
+        if cached is not None:
+            validations[index] = cached.model_copy(
+                update={"input_index": index}
+            )
+        else:
+            pending.append((index, value))
+
     if kind == "vocabulary":
-        validations = llm.validate_vocabulary_inputs(
+        fresh_validations = llm.validate_vocabulary_inputs(
             pending,
             existing_values,
         )
     else:
-        validations = llm.validate_grammar_inputs(
+        fresh_validations = llm.validate_grammar_inputs(
             pending,
             existing_values,
         )
+    validations.update(fresh_validations)
+    for index, validation in fresh_validations.items():
+        if validation.status == "valid":
+            validation_cache[cache_keys[index]] = validation.model_copy(
+                update={"input_index": 0}
+            )
     for index in duplicate_indexes:
         validations[index] = InputValidation(
             input_index=index,
@@ -629,10 +668,10 @@ def grammar_page() -> None:
             try:
                 approved_topics = database.approved_topic_catalog("grammar")
                 with st.spinner("Generating grammar..."):
-                    generated = [
-                        llm.generate_grammar(raw_input, approved_topics)
-                        for raw_input in submitted_inputs
-                    ]
+                    generated = llm.generate_grammars(
+                        submitted_inputs,
+                        approved_topics,
+                    )
                 clear_session_keys("grammar_preview_")
                 st.session_state["grammar_preview"] = generated
                 st.session_state["grammar_lesson_ids"] = (

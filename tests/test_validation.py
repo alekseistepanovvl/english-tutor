@@ -1,6 +1,7 @@
 from english_learning.validation import (
     find_duplicate_inputs,
     normalize_input,
+    validation_cache_key,
 )
 
 
@@ -17,3 +18,42 @@ def test_find_duplicate_inputs_checks_library_and_current_submission() -> None:
     )
 
     assert duplicates == {1, 2, 3}
+
+
+def test_validation_cache_key_uses_normalized_input() -> None:
+    first = validation_cache_key(
+        kind="vocabulary",
+        model="qwen3:8b",
+        value="  A Safe   Pair of Hands ",
+        existing_values=["commute"],
+    )
+    second = validation_cache_key(
+        kind="vocabulary",
+        model="qwen3:8b",
+        value="a safe pair of hands",
+        existing_values=["COMMUTE"],
+    )
+
+    assert first == second
+
+
+def test_validation_cache_key_changes_with_model_or_catalogue() -> None:
+    base = validation_cache_key(
+        kind="grammar",
+        model="qwen3:8b",
+        value="Use the present simple.",
+        existing_values=["Past simple"],
+    )
+
+    assert base != validation_cache_key(
+        kind="grammar",
+        model="qwen3:4b",
+        value="Use the present simple.",
+        existing_values=["Past simple"],
+    )
+    assert base != validation_cache_key(
+        kind="grammar",
+        model="qwen3:8b",
+        value="Use the present simple.",
+        existing_values=["Past simple", "Present simple"],
+    )

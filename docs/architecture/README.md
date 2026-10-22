@@ -99,7 +99,7 @@ src/english_learning/
     |-- vocabulary_validate.md
     |-- vocabulary_extract.md
     |-- grammar_validate.md
-    |-- grammar_extract.md
+    |-- grammar_extract_many.md
     |-- exercise_generate.md
     |-- answer_evaluate.md
     `-- answers_evaluate.md
@@ -142,7 +142,7 @@ Unknown fields are rejected by default.
 Main model groups:
 
 - `VocabularyItem`, `VocabularyImport`, and `VocabularyExample`
-- `GrammarTopic`, `GrammarRule`, and `IncorrectExample`
+- `GrammarTopic`, `GrammarImport`, `GrammarRule`, and `IncorrectExample`
 - `TopicAssignment`, `ApprovedTopicAssignment`, and
   `ProposedTopicAssignment`
 - `InputValidation` and `InputValidationSet`
@@ -163,7 +163,7 @@ Public operations:
 - validate vocabulary inputs
 - validate grammar inputs
 - generate vocabulary records
-- generate grammar topics
+- generate one or many indexed grammar topics
 - generate exercises
 - evaluate one or many answers
 - check whether Ollama is available
@@ -174,12 +174,13 @@ The shared structured-chat implementation:
 2. inserts learner level and English variant
 3. puts learner content in the user message
 4. sends the Pydantic JSON schema through Ollama's `format` field
-5. validates the returned message content with Pydantic
-6. raises `OllamaError` for transport, HTTP, or validation failures
+5. disables model thinking and applies a task-sized output-token budget
+6. validates the returned message content with Pydantic
+7. raises `OllamaError` for transport, HTTP, or validation failures
 
-Requests and durations are logged to the Streamlit terminal. Invalid
-structured responses log the Pydantic or parsing reason without logging the
-original learner request.
+Requests, durations, token counts, and generation throughput are logged to the
+Streamlit terminal. Invalid structured responses log the Pydantic or parsing
+reason without logging the original learner request.
 
 ### `database.py`
 
@@ -230,11 +231,14 @@ latest answer score after the first attempt.
 
 ### `validation.py`
 
-Contains deterministic input normalisation and duplicate detection.
+Contains deterministic input normalisation, duplicate detection, and
+validation-cache key generation.
 
 Exact duplicates are detected using case-insensitive, whitespace-normalised
 text. The LLM validation step can additionally identify semantically duplicate
-entries against a supplied saved-content catalogue.
+entries against a supplied saved-content catalogue. Successful validations are
+cached in Streamlit session state; keys include the model, validation task,
+normalised input, prompt version, and current saved-entry catalogue.
 
 ### `prompts/`
 
@@ -245,7 +249,7 @@ Contains one runtime prompt per model task.
 | `vocabulary_validate.md` | `InputValidationSet` |
 | `vocabulary_extract.md` | `VocabularyImport` |
 | `grammar_validate.md` | `InputValidationSet` |
-| `grammar_extract.md` | `GrammarTopic` |
+| `grammar_extract_many.md` | `GrammarImport` |
 | `exercise_generate.md` | `ExerciseSet` |
 | `answer_evaluate.md` | `AnswerEvaluation` |
 | `answers_evaluate.md` | `AnswerEvaluationSet` |
@@ -262,6 +266,7 @@ dataclass.
 |---|---|---|
 | Ollama model | `ENGLISH_LEARNING_MODEL` | `qwen3:8b` |
 | Ollama URL | `ENGLISH_LEARNING_OLLAMA_URL` | `http://localhost:11434` |
+| Ollama model residency | `OLLAMA_KEEP_ALIVE` | `30m` |
 | SQLite path | `ENGLISH_LEARNING_DB` | `data/english_learning.sqlite3` |
 | Learner level | `ENGLISH_LEARNING_LEVEL` | `B2` |
 | English variant | `ENGLISH_LEARNING_VARIANT` | `British` |
@@ -324,9 +329,11 @@ normalised expression updates its content rather than creating another row.
 
 ### 6.2 Grammar ingestion
 
-Each grammar input field is validated separately. Valid notes are generated
-into separate `GrammarTopic` objects, displayed in editable forms, and saved in
-one transaction through `save_grammar_topics`.
+Each grammar input field is validated separately. Valid notes are sent together
+in one Ollama request and returned as indexed `GrammarTopic` objects. The client
+rejects missing or duplicate indexes, restores the original input order, and
+the UI displays each topic in a separate editable form before saving all topics
+in one transaction through `save_grammar_topics`.
 
 Grammar topics currently create new records. Semantic duplicate validation
 reduces accidental duplication, but there is no database uniqueness constraint
@@ -461,6 +468,7 @@ management use relational tables.
 |---|---|---|
 | Input fields and editable previews | Streamlit session state | Browser session |
 | Validated LLM response objects | Streamlit session state until saved | Browser session |
+| Successful input-validation cache | Streamlit session state | Browser session |
 | Learning material | SQLite | Durable |
 | Topic assignments | SQLite | Durable |
 | Practice sessions and attempts | SQLite | Durable |
@@ -490,6 +498,9 @@ Terminal logs include:
 - practice-save events
 - Ollama task and model
 - request duration
+- prompt and generated token counts
+- model load, prompt evaluation, and generation durations
+- generated tokens per second
 - HTTP or transport failures
 - structured-output parsing and Pydantic validation reasons
 

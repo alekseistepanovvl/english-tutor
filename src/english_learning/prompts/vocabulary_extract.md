@@ -11,11 +11,12 @@ For every supplied word or expression:
 - Identify whether it is a word, phrase, idiom, phrasal verb, or collocation.
 - Provide the grammatical pattern when relevant.
 - Identify its register.
-- Produce at least two natural examples in different contexts.
-- Include frequent collocations when useful.
-- Mention important common learner mistakes.
-- Assign zero or more approved topics using only supplied topic slugs.
-- Propose a concise reusable topic only when no approved topic fits.
+- Produce two or three natural examples in different contexts.
+- Include no more than five frequent collocations.
+- Include no more than three important common learner mistakes.
+- Include no more than five concise tags.
+- Assign no more than three approved topics using only supplied topic slugs.
+- Propose at most one concise reusable topic only when no approved topic fits.
 - Do not propose a synonym or spelling variation of an approved topic.
 - Include confidence as a decimal from 0 to 1, never as a percentage, and add
   a short rationale for each topic assignment.

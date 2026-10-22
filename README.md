@@ -147,6 +147,7 @@ Ollama is local and `qwen3:8b` is installed.
 |---|---|---|
 | `ENGLISH_LEARNING_MODEL` | `qwen3:8b` | Ollama model name |
 | `ENGLISH_LEARNING_OLLAMA_URL` | `http://localhost:11434` | Ollama API URL |
+| `OLLAMA_KEEP_ALIVE` | `30m` | How long Ollama keeps the model loaded after a request |
 | `ENGLISH_LEARNING_DB` | `data/english_learning.sqlite3` | SQLite path |
 | `ENGLISH_LEARNING_LEVEL` | `B2` | Target learner level |
 | `ENGLISH_LEARNING_VARIANT` | `British` | English variety |
@@ -185,8 +186,8 @@ Streamlit normally opens:
 
 Application activity and Ollama request status are printed to the same
 terminal where Streamlit is running. Keep that terminal open to inspect
-startup, page navigation, saved content, model request timing, and structured
-response validation reasons.
+startup, page navigation, saved content, request timing, token counts,
+generation speed, and structured response validation reasons.
 
 Buttons that call Ollama display a visible loading indicator until the request
 finishes. Use **Clear current page** in the sidebar to reset temporary inputs,
@@ -224,6 +225,9 @@ are preserved when no replacement lesson selection is supplied.
 7. Select **Generate grammar**.
 8. Review and edit each generated topic and its individual rules.
 9. Select **Validate and save grammar**.
+
+All validated grammar notes are generated in one indexed Ollama request. Each
+note still produces a separate editable grammar topic.
 
 Grammar topics are currently inserted as new topics. Duplicate detection and
 topic versioning should be added before importing a large library.
@@ -331,7 +335,7 @@ src/english_learning/prompts/
 
 - `vocabulary_extract.md` creates vocabulary records.
 - `vocabulary_validate.md` validates vocabulary input before generation.
-- `grammar_extract.md` creates grammar topics and rules.
+- `grammar_extract_many.md` creates indexed grammar topics in one batch.
 - `grammar_validate.md` validates grammar input before generation.
 - `exercise_generate.md` creates exercises from selected saved material.
 - `answers_evaluate.md` assesses a complete practice submission.
@@ -341,8 +345,11 @@ Ollama's `format` field. This is more reliable than requesting JSON only in
 natural-language instructions.
 
 Extraction and evaluation use temperature `0`. Exercise generation uses a
-small amount of variation. Prompt changes should eventually receive explicit
-version numbers so content can be traced to the prompt that generated it.
+small amount of variation. Structured requests disable model thinking and use
+task-sized output limits. Successful input validations are cached for the
+current browser session and invalidated when the model or saved-entry catalogue
+changes. Prompt changes should eventually receive explicit version numbers so
+content can be traced to the prompt that generated it.
 
 ## Run tests
 

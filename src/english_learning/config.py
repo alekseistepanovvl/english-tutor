@@ -15,6 +15,7 @@ class Settings:
     database_path: Path
     learner_level: str
     english_variant: str
+    ollama_keep_alive: str = "30m"
 
 
 def load_settings() -> Settings:
@@ -35,5 +36,5 @@ def load_settings() -> Settings:
         database_path=database_path,
         learner_level=os.getenv("ENGLISH_LEARNING_LEVEL", "B2"),
         english_variant=os.getenv("ENGLISH_LEARNING_VARIANT", "British"),
+        ollama_keep_alive=os.getenv("OLLAMA_KEEP_ALIVE", "30m"),
     )
-

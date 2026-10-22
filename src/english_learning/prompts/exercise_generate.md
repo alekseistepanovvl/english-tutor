@@ -21,6 +21,7 @@ Requirements:
 - Do not reveal the exact answer in the sentence, instruction, or cue.
 - Put only the missing text in expected_answers, not the complete sentence.
 - Explain why the expected answer fits the vocabulary meaning or grammar rule.
+- Keep instructions and explanations concise.
 - Use {english_variant} English.
 - Copy one supplied item_key into primary_item_key for every exercise.
 - Include other genuinely tested supplied keys in supporting_item_keys.

@@ -4,7 +4,7 @@ import json
 import logging
 from pathlib import Path
 from time import perf_counter
-from typing import TypeVar
+from typing import Any, TypeVar
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -16,6 +16,7 @@ from english_learning.domain import (
     AnswerEvaluationSet,
     Exercise,
     ExerciseSet,
+    GrammarImport,
     GrammarTopic,
     InputValidation,
     InputValidationSet,
@@ -26,6 +27,13 @@ from english_learning.domain import (
 PROMPT_DIR = Path(__file__).with_name("prompts")
 ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
 logger = logging.getLogger(__name__)
+
+VALIDATION_OUTPUT_TOKENS = 768
+VOCABULARY_OUTPUT_TOKENS_PER_ITEM = 1024
+GRAMMAR_OUTPUT_TOKENS_PER_ITEM = 2048
+EXERCISE_OUTPUT_TOKENS_PER_ITEM = 320
+ANSWER_OUTPUT_TOKENS_PER_ITEM = 192
+MAX_STRUCTURED_OUTPUT_TOKENS = 4096
 
 
 class OllamaError(RuntimeError):
@@ -49,6 +57,10 @@ class OllamaClient:
         raw_input: str,
         approved_topics: list[dict] | None = None,
     ) -> VocabularyImport:
+        item_count = max(
+            1,
+            len([line for line in raw_input.splitlines() if line.strip()]),
+        )
         return self._structured_chat(
             prompt_name="vocabulary_extract.md",
             user_content=json.dumps(
@@ -61,6 +73,10 @@ class OllamaClient:
             ),
             response_model=VocabularyImport,
             temperature=0,
+            max_output_tokens=min(
+                MAX_STRUCTURED_OUTPUT_TOKENS,
+                item_count * VOCABULARY_OUTPUT_TOKENS_PER_ITEM,
+            ),
         )
 
     def generate_grammar(
@@ -68,19 +84,54 @@ class OllamaClient:
         raw_input: str,
         approved_topics: list[dict] | None = None,
     ) -> GrammarTopic:
-        return self._structured_chat(
-            prompt_name="grammar_extract.md",
+        return self.generate_grammars([raw_input], approved_topics)[0]
+
+    def generate_grammars(
+        self,
+        raw_inputs: list[str],
+        approved_topics: list[dict] | None = None,
+    ) -> list[GrammarTopic]:
+        if not raw_inputs:
+            raise ValueError("At least one grammar note is required.")
+
+        result = self._structured_chat(
+            prompt_name="grammar_extract_many.md",
             user_content=json.dumps(
                 {
-                    "learner_input": raw_input,
+                    "input_notes": [
+                        {
+                            "input_index": index,
+                            "learner_input": raw_input,
+                        }
+                        for index, raw_input in enumerate(raw_inputs)
+                    ],
                     "approved_topics": approved_topics or [],
                 },
                 ensure_ascii=False,
                 indent=2,
             ),
-            response_model=GrammarTopic,
+            response_model=GrammarImport,
             temperature=0,
+            max_output_tokens=min(
+                MAX_STRUCTURED_OUTPUT_TOKENS,
+                len(raw_inputs) * GRAMMAR_OUTPUT_TOKENS_PER_ITEM,
+            ),
         )
+        topics_by_index: dict[int, GrammarTopic] = {}
+        for indexed_topic in result.topics:
+            if indexed_topic.input_index in topics_by_index:
+                raise OllamaError(
+                    "The model returned duplicate grammar input indexes."
+                )
+            topics_by_index[indexed_topic.input_index] = indexed_topic.topic
+
+        expected_indexes = set(range(len(raw_inputs)))
+        if set(topics_by_index) != expected_indexes:
+            raise OllamaError(
+                "The model did not return exactly one grammar topic for "
+                "every submitted input."
+            )
+        return [topics_by_index[index] for index in range(len(raw_inputs))]
 
     def validate_vocabulary_inputs(
         self,
@@ -128,6 +179,10 @@ class OllamaClient:
             ),
             response_model=InputValidationSet,
             temperature=0,
+            max_output_tokens=min(
+                MAX_STRUCTURED_OUTPUT_TOKENS,
+                max(VALIDATION_OUTPUT_TOKENS, len(inputs) * 192),
+            ),
         )
         expected_indexes = {index for index, _ in inputs}
         validations = {
@@ -163,6 +218,10 @@ class OllamaClient:
             user_content=content,
             response_model=ExerciseSet,
             temperature=0.4,
+            max_output_tokens=min(
+                MAX_STRUCTURED_OUTPUT_TOKENS,
+                max(768, count * EXERCISE_OUTPUT_TOKENS_PER_ITEM),
+            ),
         )
         allowed_keys = {
             item["item_key"]
@@ -221,6 +280,10 @@ class OllamaClient:
             user_content=content,
             response_model=AnswerEvaluationSet,
             temperature=0,
+            max_output_tokens=min(
+                MAX_STRUCTURED_OUTPUT_TOKENS,
+                max(512, len(answers) * ANSWER_OUTPUT_TOKENS_PER_ITEM),
+            ),
         )
         expected_indexes = {index for index, _, _ in answers}
         evaluations = {
@@ -244,6 +307,7 @@ class OllamaClient:
         user_content: str,
         response_model: type[ResponseModel],
         temperature: float,
+        max_output_tokens: int,
     ) -> ResponseModel:
         system_prompt = (PROMPT_DIR / prompt_name).read_text(
             encoding="utf-8"
@@ -254,12 +318,17 @@ class OllamaClient:
         payload = {
             "model": self.settings.model,
             "stream": False,
+            "think": False,
+            "keep_alive": self.settings.ollama_keep_alive,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content},
             ],
             "format": response_model.model_json_schema(),
-            "options": {"temperature": temperature},
+            "options": {
+                "temperature": temperature,
+                "num_predict": max_output_tokens,
+            },
         }
         request = Request(
             f"{self.settings.ollama_url}/api/chat",
@@ -269,9 +338,10 @@ class OllamaClient:
         )
         started_at = perf_counter()
         logger.info(
-            "Ollama request started task=%s model=%s",
+            "Ollama request started task=%s model=%s max_output_tokens=%d",
             prompt_name,
             self.settings.model,
+            max_output_tokens,
         )
         try:
             with urlopen(request, timeout=180) as response:
@@ -299,6 +369,7 @@ class OllamaClient:
                 "running, and configured correctly."
             ) from error
 
+        self._log_response_metrics(prompt_name, body)
         try:
             content = body["message"]["content"]
             result = response_model.model_validate_json(content)
@@ -322,3 +393,51 @@ class OllamaClient:
             perf_counter() - started_at,
         )
         return result
+
+    @staticmethod
+    def _log_response_metrics(
+        prompt_name: str,
+        body: dict[str, Any],
+    ) -> None:
+        load_seconds = OllamaClient._duration_seconds(
+            body.get("load_duration")
+        )
+        prompt_seconds = OllamaClient._duration_seconds(
+            body.get("prompt_eval_duration")
+        )
+        generation_seconds = OllamaClient._duration_seconds(
+            body.get("eval_duration")
+        )
+        prompt_tokens = OllamaClient._token_count(
+            body.get("prompt_eval_count")
+        )
+        generated_tokens = OllamaClient._token_count(body.get("eval_count"))
+        tokens_per_second = (
+            generated_tokens / generation_seconds
+            if generation_seconds > 0
+            else 0
+        )
+        logger.info(
+            "Ollama metrics task=%s load=%.2fs prompt_tokens=%d "
+            "prompt_eval=%.2fs generated_tokens=%d generation=%.2fs "
+            "tokens_per_second=%.2f",
+            prompt_name,
+            load_seconds,
+            prompt_tokens,
+            prompt_seconds,
+            generated_tokens,
+            generation_seconds,
+            tokens_per_second,
+        )
+
+    @staticmethod
+    def _duration_seconds(value: Any) -> float:
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return value / 1_000_000_000
+        return 0
+
+    @staticmethod
+    def _token_count(value: Any) -> int:
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value
+        return 0
