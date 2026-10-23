@@ -19,12 +19,12 @@ logger.setLevel(logging.INFO)
 from english_learning.config import load_settings
 from english_learning.database import Database
 from english_learning.domain import (
-    AnswerEvaluation,
     GrammarTopic,
     InputValidation,
     VocabularyItem,
     VocabularyImport,
 )
+from english_learning.evaluation import partition_answer_evaluations
 from english_learning.llm import OllamaClient, OllamaError
 from english_learning.scheduling import (
     select_practice_items,
@@ -704,29 +704,6 @@ def grammar_page() -> None:
                 st.error(f"Could not save grammar:\n\n{error}")
 
 
-def deterministic_evaluation(
-    learner_answer: str,
-    expected_answers: list[str],
-) -> AnswerEvaluation:
-    normalised = learner_answer.strip().casefold()
-    correct = any(
-        normalised == expected.strip().casefold()
-        for expected in expected_answers
-    )
-    return AnswerEvaluation(
-        verdict="correct" if correct else "incorrect",
-        score=1.0 if correct else 0.0,
-        corrected_answer=None if correct else expected_answers[0],
-        explanation=(
-            "Correct."
-            if correct
-            else "That option does not match the expected answer."
-        ),
-        error_categories=[] if correct else ["incorrect-choice"],
-        review_again=not correct,
-    )
-
-
 def practice_page() -> None:
     st.header("Practice")
     source = st.radio(
@@ -951,24 +928,27 @@ def practice_page() -> None:
             )
         else:
             try:
-                evaluations: dict[int, AnswerEvaluation] = {}
-                semantic_answers = []
-                for index in pending_indexes:
-                    exercise = exercise_set.exercises[index]
-                    answer = answers[index]
-                    if exercise.options:
-                        evaluations[index] = deterministic_evaluation(
-                            answer or "",
-                            exercise.expected_answers,
-                        )
-                    else:
-                        semantic_answers.append(
-                            (index, exercise, answer or "")
-                        )
-                with st.spinner("Checking all answers..."):
-                    evaluations.update(
-                        llm.evaluate_answers(semantic_answers)
+                submissions = [
+                    (
+                        index,
+                        exercise_set.exercises[index],
+                        answers[index] or "",
                     )
+                    for index in pending_indexes
+                ]
+                evaluations, semantic_answers = (
+                    partition_answer_evaluations(submissions)
+                )
+                logger.info(
+                    "Practice evaluation routed deterministic=%d model=%d",
+                    len(evaluations),
+                    len(semantic_answers),
+                )
+                with st.spinner("Checking all answers..."):
+                    if semantic_answers:
+                        evaluations.update(
+                            llm.evaluate_answers(semantic_answers)
+                        )
                     attempts = []
                     for index in pending_indexes:
                         exercise = exercise_set.exercises[index]

@@ -289,6 +289,11 @@ Exercises are presented in a randomized order for each generated practice set.
 After checking the set, the application displays the result beneath every
 exercise, explains why, and shows the correct missing text when necessary.
 
+Exact answers are checked deterministically in Python after normalizing case,
+whitespace, typographic apostrophes, and harmless terminal punctuation.
+Multiple-choice answers are also checked in Python. Only ambiguous non-matching
+free-text answers are sent to Ollama for semantic evaluation.
+
 Random selection samples matching items uniformly. Least-mastered selection
 chooses the lowest mastery scores first, treating new items as unmastered.
 Questions,

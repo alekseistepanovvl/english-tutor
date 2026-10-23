@@ -22,6 +22,7 @@ The following optimizations are already implemented:
 - output-token limits are set by task
 - generated list sizes are bounded in prompts and response schemas
 - successful input validation is cached in Streamlit session state
+- exact, empty, and multiple-choice answers are evaluated in Python
 - Ollama load, prompt evaluation, generation, token count, and throughput
   metrics are logged in the terminal
 
@@ -32,7 +33,7 @@ The configured model remains `qwen3:8b` unless the learner changes
 
 | Priority | Recommendation | Expected influence | Primary benefit |
 |---|---|---|---|
-| P0 | Evaluate obvious answers in Python | High | Avoid model requests |
+| Complete | Evaluate obvious answers in Python | High | Avoid model requests |
 | P0 | Shortlist duplicate candidates locally | High | Reduce prompt size |
 | P0 | Bound grammar request batches | High | Balance speed and reliability |
 | P0 | Benchmark smaller models and GPU residency | High | Increase generation speed |
@@ -44,7 +45,7 @@ The configured model remains `qwen3:8b` unless the learner changes
 
 ## P0: High-influence optimizations
 
-### 1. Evaluate obvious answers in Python
+### 1. Evaluate obvious answers in Python (completed)
 
 Normalize learner answers and expected alternatives using deterministic rules:
 
