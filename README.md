@@ -219,7 +219,9 @@ are preserved when no replacement lesson selection is supplied.
 Vocabulary validation treats only normalized copies of the same expression as
 duplicates. Synonyms, paraphrases, related expressions, and different
 grammatical forms remain separate learning entries. Saved vocabulary is not
-sent to Ollama during validation.
+sent to Ollama during validation. Exact duplicate checks query SQLite only for
+the currently submitted normalized expressions, so the complete vocabulary
+library is not loaded into application memory.
 
 ### Add grammar
 

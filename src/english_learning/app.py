@@ -32,6 +32,7 @@ from english_learning.scheduling import (
 )
 from english_learning.validation import (
     find_duplicate_inputs,
+    normalize_input,
     validation_cache_key,
 )
 
@@ -554,15 +555,20 @@ def vocabulary_page() -> None:
         else:
             try:
                 with st.spinner("Validating vocabulary..."):
+                    existing_values = (
+                        database.find_existing_vocabulary_expressions(
+                            [
+                                normalize_input(value)
+                                for value in submitted_inputs
+                            ]
+                        )
+                    )
                     validate_inputs(
                         kind="vocabulary",
                         inputs=submitted_inputs,
-                        existing_values=[
-                            item["normalized_expression"]
-                            for item in database.list_vocabulary()
-                        ],
+                        existing_values=existing_values,
                     )
-            except OllamaError as error:
+            except (OllamaError, sqlite3.Error) as error:
                 st.error(str(error))
     inputs_are_valid = render_input_validation(
         "vocabulary",

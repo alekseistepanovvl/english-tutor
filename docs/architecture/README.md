@@ -242,6 +242,11 @@ valid independent learning material. Successful validations are cached in
 Streamlit session state; keys include the model, validation task, normalized
 input, and prompt version.
 
+Vocabulary duplicate checks query the indexed
+`vocabulary_items.normalized_expression` column only for values in the current
+submission. They do not load the vocabulary table into Python memory. Query
+batches are bounded to avoid SQLite parameter limits.
+
 ### `prompts/`
 
 Contains one runtime prompt per model task.

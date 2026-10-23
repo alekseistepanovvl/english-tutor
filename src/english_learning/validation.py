@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import unicodedata
+from collections.abc import Iterable
 
 
 VALIDATION_PROMPT_VERSION = "2"
@@ -18,7 +19,7 @@ def normalize_input(value: str) -> str:
 
 def find_duplicate_inputs(
     inputs: list[str],
-    existing_values: list[str],
+    existing_values: Iterable[str],
 ) -> set[int]:
     existing = {
         normalize_input(value)

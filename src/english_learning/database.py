@@ -16,6 +16,9 @@ from english_learning.migrations import migrate, slugify
 from english_learning.scheduling import next_review_at, update_mastery
 
 
+SQLITE_QUERY_BATCH_SIZE = 500
+
+
 SCHEMA = """
 PRAGMA foreign_keys = ON;
 
@@ -308,6 +311,44 @@ class Database:
                     item[key.removesuffix("_json")] = json.loads(item.pop(key))
                 results.append(item)
             return results
+
+    def find_existing_vocabulary_expressions(
+        self,
+        normalized_expressions: list[str],
+    ) -> set[str]:
+        candidates = sorted(
+            {
+                expression
+                for expression in normalized_expressions
+                if expression
+            }
+        )
+        if not candidates:
+            return set()
+
+        matches: set[str] = set()
+        with self.connect() as connection:
+            for offset in range(
+                0,
+                len(candidates),
+                SQLITE_QUERY_BATCH_SIZE,
+            ):
+                batch = candidates[
+                    offset : offset + SQLITE_QUERY_BATCH_SIZE
+                ]
+                placeholders = ", ".join("?" for _ in batch)
+                rows = connection.execute(
+                    f"""
+                    SELECT normalized_expression
+                    FROM vocabulary_items
+                    WHERE normalized_expression IN ({placeholders})
+                    """,
+                    batch,
+                ).fetchall()
+                matches.update(
+                    row["normalized_expression"] for row in rows
+                )
+        return matches
 
     def list_grammar_topics(self) -> list[dict]:
         with self.connect() as connection:

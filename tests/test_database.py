@@ -42,6 +42,13 @@ def test_save_and_list_vocabulary(tmp_path: Path) -> None:
     assert len(saved) == 1
     assert saved[0]["expression"] == "a safe pair of hands"
     assert len(saved[0]["examples"]) == 2
+    candidates = [
+        *(f"missing-{index}" for index in range(600)),
+        "a safe pair of hands",
+    ]
+    assert database.find_existing_vocabulary_expressions(candidates) == {
+        "a safe pair of hands"
+    }
 
 
 def test_save_and_list_grammar(tmp_path: Path) -> None:
