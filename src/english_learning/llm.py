@@ -22,6 +22,11 @@ from english_learning.domain import (
     InputValidationSet,
     VocabularyImport,
 )
+from english_learning.exercise_variation import (
+    advance_exercise_plan,
+    build_exercise_plans,
+    find_repeated_exercise_indexes,
+)
 
 
 PROMPT_DIR = Path(__file__).with_name("prompts")
@@ -225,12 +230,62 @@ class OllamaClient:
         self,
         learning_material: list[dict],
         count: int,
+        *,
+        variation_rotation: int = 0,
+    ) -> ExerciseSet:
+        plans = build_exercise_plans(
+            learning_material,
+            count,
+            rotation=variation_rotation,
+        )
+        exercises = self._generate_exercises_for_plans(
+            learning_material,
+            plans,
+        )
+        repeated_indexes = find_repeated_exercise_indexes(
+            exercises.exercises
+        )
+        if repeated_indexes:
+            logger.info(
+                "Retrying repeated practice exercises count=%d",
+                len(repeated_indexes),
+            )
+            retry_plans = [
+                advance_exercise_plan(plans[index])
+                for index in sorted(repeated_indexes)
+            ]
+            retry_exercises = self._generate_exercises_for_plans(
+                learning_material,
+                retry_plans,
+                questions_to_avoid=[
+                    exercise.question for exercise in exercises.exercises
+                ],
+            )
+            for index, replacement in zip(
+                sorted(repeated_indexes),
+                retry_exercises.exercises,
+                strict=True,
+            ):
+                exercises.exercises[index] = replacement
+            if find_repeated_exercise_indexes(exercises.exercises):
+                raise OllamaError(
+                    "The model returned repeated practice exercises."
+                )
+        return exercises
+
+    def _generate_exercises_for_plans(
+        self,
+        learning_material: list[dict],
+        plans: list[dict],
+        questions_to_avoid: list[str] | None = None,
     ) -> ExerciseSet:
         content = json.dumps(
             {
-                "exercise_count": count,
+                "exercise_count": len(plans),
                 "learner_level": self.settings.learner_level,
                 "learning_material": learning_material,
+                "exercise_plans": plans,
+                "questions_to_avoid": questions_to_avoid or [],
             },
             ensure_ascii=False,
             indent=2,
@@ -242,15 +297,28 @@ class OllamaClient:
             temperature=0.4,
             max_output_tokens=min(
                 MAX_STRUCTURED_OUTPUT_TOKENS,
-                max(768, count * EXERCISE_OUTPUT_TOKENS_PER_ITEM),
+                max(768, len(plans) * EXERCISE_OUTPUT_TOKENS_PER_ITEM),
             ),
         )
+        if len(exercises.exercises) != len(plans):
+            raise OllamaError(
+                "The model did not return exactly one exercise for every "
+                "exercise plan."
+            )
         allowed_keys = {
             item["item_key"]
             for item in learning_material
             if "item_key" in item
         }
-        for exercise in exercises.exercises:
+        for exercise, plan in zip(
+            exercises.exercises,
+            plans,
+            strict=True,
+        ):
+            if exercise.primary_item_key != plan["primary_item_key"]:
+                raise OllamaError(
+                    "The model did not preserve the planned learning item."
+                )
             returned_keys = {
                 exercise.primary_item_key,
                 *exercise.supporting_item_keys,

@@ -298,6 +298,10 @@ Exercises use sentences with a blank:
   `(refuse / help)`.
 
 Exercises are presented in a randomized order for each generated practice set.
+Before generation, Python assigns each exercise a rotating context, setting,
+subject, and sentence shape based on the saved item and its attempt count.
+Distinct output uses the normal single Ollama request. Exact or very similar
+questions trigger one targeted retry for only the repeated exercises.
 
 After checking the set, the application displays the result beneath every
 exercise, explains why, and shows the correct missing text when necessary.

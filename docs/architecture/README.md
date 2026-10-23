@@ -91,6 +91,7 @@ src/english_learning/
 |-- config.py
 |-- database.py
 |-- domain.py
+|-- exercise_variation.py
 |-- llm.py
 |-- migrations.py
 |-- scheduling.py
@@ -228,6 +229,16 @@ Contains deterministic practice and review logic:
 
 The current mastery update uses 80% of the previous mastery and 20% of the
 latest answer score after the first attempt.
+
+### `exercise_variation.py`
+
+Builds deterministic exercise plans from stable item keys, attempt counts, and
+the current session rotation. Each plan assigns a context, setting, subject,
+and sentence shape before Ollama is called.
+
+It also performs normalized exact and strict high-similarity comparison after
+generation. Repeated questions are identified in Python so only those plans
+need one targeted model retry.
 
 ### `validation.py`
 
@@ -374,9 +385,13 @@ flowchart TD
     Strategy{Selection strategy}
     Random[Random sample]
     Weak[Lowest mastery first]
+    Plans[Deterministic variation plans]
     LLM[Ollama exercise generation]
     Validate[Pydantic ExerciseSet validation]
     Guard[Verify stable item keys and fill-blank format]
+    Diversity{Repeated or very similar?}
+    Retry[One targeted retry]
+    RetryValidate[Validate replacement exercises]
     Shuffle[Randomise exercise order]
     Session[Store practice session metadata]
     UI[Display material and exercises]
@@ -384,9 +399,13 @@ flowchart TD
     Filters --> Candidates --> Strategy
     Strategy -->|Random| Random
     Strategy -->|Least mastered| Weak
-    Random --> LLM
-    Weak --> LLM
-    LLM --> Validate --> Guard --> Shuffle --> Session --> UI
+    Random --> Plans
+    Weak --> Plans
+    Plans --> LLM
+    LLM --> Validate --> Guard --> Diversity
+    Diversity -->|No| Shuffle
+    Diversity -->|Yes| Retry --> RetryValidate --> Shuffle
+    Shuffle --> Session --> UI
 ```
 
 Every exercise refers to saved material through stable keys:
@@ -397,7 +416,9 @@ grammar_rule:<database-id>
 ```
 
 The Ollama client rejects exercises that reference material not supplied to
-the generation request.
+the generation request or do not preserve the planned primary item. The normal
+path uses one request. A second, smaller request is made only when deterministic
+comparison finds an exact or at least 92% similar generated question.
 
 ### 6.5 Answer submission
 

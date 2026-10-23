@@ -221,6 +221,283 @@ def test_evaluate_answers_rejects_incomplete_batch(monkeypatch) -> None:
         )
 
 
+def exercise_response(
+    primary_item_key: str,
+    question: str,
+) -> dict:
+    return {
+        "exercise_type": "fill_blank",
+        "instruction": "Complete the sentence.",
+        "question": question,
+        "cue": None,
+        "options": [],
+        "expected_answers": ["commute"],
+        "explanation": "Use the saved vocabulary.",
+        "primary_item_key": primary_item_key,
+        "supporting_item_keys": [],
+    }
+
+
+def test_generate_exercises_uses_one_request_for_distinct_output(
+    monkeypatch,
+) -> None:
+    requests = []
+
+    def fake_urlopen(request, timeout):
+        requests.append(request)
+        payload = json.loads(request.data)
+        user_content = json.loads(payload["messages"][1]["content"])
+        plans = user_content["exercise_plans"]
+        response_body = {
+            "message": {
+                "content": json.dumps(
+                    {
+                        "exercises": [
+                            exercise_response(
+                                plans[0]["primary_item_key"],
+                                "She _____ to work by train every morning.",
+                            ),
+                            exercise_response(
+                                plans[1]["primary_item_key"],
+                                "The manager is _____ during difficult projects.",
+                            ),
+                        ]
+                    }
+                )
+            }
+        }
+        return BytesIO(json.dumps(response_body).encode())
+
+    monkeypatch.setattr("english_learning.llm.urlopen", fake_urlopen)
+    client = OllamaClient(
+        Settings(
+            model="test-model",
+            ollama_url="http://localhost:11434",
+            database_path=Path("test.sqlite3"),
+            learner_level="B2",
+            english_variant="British",
+        )
+    )
+    material = [
+        {
+            "item_key": "vocabulary:1",
+            "kind": "vocabulary",
+            "expression": "commute",
+            "attempt_count": 0,
+        },
+        {
+            "item_key": "vocabulary:2",
+            "kind": "vocabulary",
+            "expression": "reliable",
+            "attempt_count": 0,
+        },
+    ]
+
+    result = client.generate_exercises(material, 2, variation_rotation=4)
+
+    assert len(result.exercises) == 2
+    assert len(requests) == 1
+    payload = json.loads(requests[0].data)
+    user_content = json.loads(payload["messages"][1]["content"])
+    assert len(user_content["exercise_plans"]) == 2
+    assert user_content["questions_to_avoid"] == []
+    assert {
+        "context",
+        "setting",
+        "subject",
+        "sentence_shape",
+    } <= set(user_content["exercise_plans"][0])
+
+
+def test_generate_exercises_retries_only_repeated_question(
+    monkeypatch,
+) -> None:
+    requests = []
+
+    def fake_urlopen(request, timeout):
+        requests.append(request)
+        payload = json.loads(request.data)
+        user_content = json.loads(payload["messages"][1]["content"])
+        plans = user_content["exercise_plans"]
+        if len(requests) == 1:
+            questions = [
+                "She _____ to work by train every morning.",
+                "She _____ to work by train every morning.",
+            ]
+        else:
+            questions = [
+                "During the rail strike, they _____ from another town."
+            ]
+        response_body = {
+            "message": {
+                "content": json.dumps(
+                    {
+                        "exercises": [
+                            exercise_response(
+                                plan["primary_item_key"],
+                                question,
+                            )
+                            for plan, question in zip(
+                                plans,
+                                questions,
+                                strict=True,
+                            )
+                        ]
+                    }
+                )
+            }
+        }
+        return BytesIO(json.dumps(response_body).encode())
+
+    monkeypatch.setattr("english_learning.llm.urlopen", fake_urlopen)
+    client = OllamaClient(
+        Settings(
+            model="test-model",
+            ollama_url="http://localhost:11434",
+            database_path=Path("test.sqlite3"),
+            learner_level="B2",
+            english_variant="British",
+        )
+    )
+    material = [
+        {
+            "item_key": "vocabulary:1",
+            "kind": "vocabulary",
+            "expression": "commute",
+            "attempt_count": 0,
+        },
+        {
+            "item_key": "vocabulary:2",
+            "kind": "vocabulary",
+            "expression": "reliable",
+            "attempt_count": 0,
+        },
+    ]
+
+    result = client.generate_exercises(material, 2, variation_rotation=4)
+
+    assert len(requests) == 2
+    assert result.exercises[0].question == (
+        "She _____ to work by train every morning."
+    )
+    assert result.exercises[1].question == (
+        "During the rail strike, they _____ from another town."
+    )
+    retry_payload = json.loads(requests[1].data)
+    retry_content = json.loads(
+        retry_payload["messages"][1]["content"]
+    )
+    assert len(retry_content["exercise_plans"]) == 1
+    assert retry_content["exercise_plans"][0]["plan_index"] == 1
+    assert len(retry_content["questions_to_avoid"]) == 2
+
+
+def test_generate_exercises_rejects_repeated_retry(monkeypatch) -> None:
+    def fake_urlopen(request, timeout):
+        payload = json.loads(request.data)
+        user_content = json.loads(payload["messages"][1]["content"])
+        response_body = {
+            "message": {
+                "content": json.dumps(
+                    {
+                        "exercises": [
+                            exercise_response(
+                                plan["primary_item_key"],
+                                "She _____ to work by train every morning.",
+                            )
+                            for plan in user_content["exercise_plans"]
+                        ]
+                    }
+                )
+            }
+        }
+        return BytesIO(json.dumps(response_body).encode())
+
+    monkeypatch.setattr("english_learning.llm.urlopen", fake_urlopen)
+    client = OllamaClient(
+        Settings(
+            model="test-model",
+            ollama_url="http://localhost:11434",
+            database_path=Path("test.sqlite3"),
+            learner_level="B2",
+            english_variant="British",
+        )
+    )
+    material = [
+        {
+            "item_key": "vocabulary:1",
+            "kind": "vocabulary",
+            "expression": "commute",
+            "attempt_count": 0,
+        },
+        {
+            "item_key": "vocabulary:2",
+            "kind": "vocabulary",
+            "expression": "reliable",
+            "attempt_count": 0,
+        },
+    ]
+
+    with pytest.raises(OllamaError, match="repeated practice exercises"):
+        client.generate_exercises(material, 2)
+
+
+def test_generate_exercises_rejects_swapped_plan_items(
+    monkeypatch,
+) -> None:
+    def fake_urlopen(request, timeout):
+        payload = json.loads(request.data)
+        user_content = json.loads(payload["messages"][1]["content"])
+        plans = user_content["exercise_plans"]
+        response_body = {
+            "message": {
+                "content": json.dumps(
+                    {
+                        "exercises": [
+                            exercise_response(
+                                plans[1]["primary_item_key"],
+                                "She _____ to work every morning.",
+                            ),
+                            exercise_response(
+                                plans[0]["primary_item_key"],
+                                "The manager is always _____.",
+                            ),
+                        ]
+                    }
+                )
+            }
+        }
+        return BytesIO(json.dumps(response_body).encode())
+
+    monkeypatch.setattr("english_learning.llm.urlopen", fake_urlopen)
+    client = OllamaClient(
+        Settings(
+            model="test-model",
+            ollama_url="http://localhost:11434",
+            database_path=Path("test.sqlite3"),
+            learner_level="B2",
+            english_variant="British",
+        )
+    )
+    material = [
+        {
+            "item_key": "vocabulary:1",
+            "kind": "vocabulary",
+            "expression": "commute",
+            "attempt_count": 0,
+        },
+        {
+            "item_key": "vocabulary:2",
+            "kind": "vocabulary",
+            "expression": "reliable",
+            "attempt_count": 0,
+        },
+    ]
+
+    with pytest.raises(OllamaError, match="planned learning item"):
+        client.generate_exercises(material, 2)
+
+
 def test_validate_vocabulary_inputs_returns_indexed_results(
     monkeypatch,
 ) -> None:

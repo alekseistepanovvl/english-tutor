@@ -27,6 +27,8 @@ The following optimizations are already implemented:
 - vocabulary duplicate checks use bounded indexed SQLite queries rather than
   loading the library into application memory
 - exact, empty, and multiple-choice answers are evaluated in Python
+- exercise contexts rotate deterministically, with one targeted retry only for
+  exact or highly similar generated questions
 - Ollama load, prompt evaluation, generation, token count, and throughput
   metrics are logged in the terminal
 

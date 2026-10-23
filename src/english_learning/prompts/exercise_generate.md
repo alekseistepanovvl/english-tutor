@@ -3,6 +3,12 @@ Create exercises from the supplied learning material.
 Requirements:
 
 - Use exactly the requested number of exercises.
+- Create exactly one exercise for each supplied exercise plan, in plan order.
+- Use the plan's primary_item_key, context, setting, subject, and sentence
+  shape. Do not exchange plans between learning items.
+- Avoid every sentence in questions_to_avoid.
+- Do not create superficial rewrites of another exercise in the same response.
+- Vary sentence openings and grammatical structures across the response.
 - Target a {learner_level} learner.
 - Test only the supplied vocabulary and grammar.
 - Every exercise must use exercise_type `fill_blank`.

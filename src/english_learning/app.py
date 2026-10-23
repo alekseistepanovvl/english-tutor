@@ -810,11 +810,19 @@ def practice_page() -> None:
                 ),
             )
             try:
+                variation_rotation = st.session_state.get(
+                    "practice_variation_rotation",
+                    0,
+                )
                 with st.spinner("Generating practice exercises..."):
                     generated = llm.generate_exercises(
                         selected_items,
                         exercise_count,
+                        variation_rotation=variation_rotation,
                     )
+                st.session_state["practice_variation_rotation"] = (
+                    variation_rotation + 1
+                )
                 generated.exercises = shuffle_exercises(generated.exercises)
                 session_id = database.create_practice_session(
                     source.lower(),
