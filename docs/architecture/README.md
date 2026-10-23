@@ -174,10 +174,11 @@ The shared structured-chat implementation:
 1. loads a focused prompt
 2. inserts learner level and English variant
 3. puts learner content in the user message
-4. sends the Pydantic JSON schema through Ollama's `format` field
-5. disables model thinking and applies a task-sized output-token budget
-6. validates the returned message content with Pydantic
-7. raises `OllamaError` for transport, HTTP, or validation failures
+4. serializes learner-task and outer request JSON compactly as UTF-8
+5. sends the Pydantic JSON schema through Ollama's `format` field
+6. disables model thinking and applies a task-sized output-token budget
+7. validates the returned message content with Pydantic
+8. raises `OllamaError` for transport, HTTP, or validation failures
 
 Requests, durations, token counts, and generation throughput are logged to the
 Streamlit terminal. Invalid structured responses log the Pydantic or parsing

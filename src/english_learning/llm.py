@@ -42,6 +42,14 @@ ANSWER_OUTPUT_TOKENS_PER_ITEM = 192
 MAX_STRUCTURED_OUTPUT_TOKENS = 4096
 
 
+def _compact_json(value: Any) -> str:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
 class OllamaError(RuntimeError):
     pass
 
@@ -69,13 +77,11 @@ class OllamaClient:
         )
         return self._structured_chat(
             prompt_name="vocabulary_extract.md",
-            user_content=json.dumps(
+            user_content=_compact_json(
                 {
                     "learner_input": raw_input,
                     "approved_topics": approved_topics or [],
                 },
-                ensure_ascii=False,
-                indent=2,
             ),
             response_model=VocabularyImport,
             temperature=0,
@@ -129,7 +135,7 @@ class OllamaClient:
     ) -> dict[int, GrammarTopic]:
         result = self._structured_chat(
             prompt_name="grammar_extract_many.md",
-            user_content=json.dumps(
+            user_content=_compact_json(
                 {
                     "input_notes": [
                         {
@@ -140,8 +146,6 @@ class OllamaClient:
                     ],
                     "approved_topics": approved_topics or [],
                 },
-                ensure_ascii=False,
-                indent=2,
             ),
             response_model=GrammarImport,
             temperature=0,
@@ -194,15 +198,13 @@ class OllamaClient:
             return {}
         result = self._structured_chat(
             prompt_name=prompt_name,
-            user_content=json.dumps(
+            user_content=_compact_json(
                 {
                     "inputs": [
                         {"input_index": index, "input": value}
                         for index, value in inputs
                     ],
                 },
-                ensure_ascii=False,
-                indent=2,
             ),
             response_model=InputValidationSet,
             temperature=0,
@@ -279,7 +281,7 @@ class OllamaClient:
         plans: list[dict],
         questions_to_avoid: list[str] | None = None,
     ) -> ExerciseSet:
-        content = json.dumps(
+        content = _compact_json(
             {
                 "exercise_count": len(plans),
                 "learner_level": self.settings.learner_level,
@@ -287,8 +289,6 @@ class OllamaClient:
                 "exercise_plans": plans,
                 "questions_to_avoid": questions_to_avoid or [],
             },
-            ensure_ascii=False,
-            indent=2,
         )
         exercises = self._structured_chat(
             prompt_name="exercise_generate.md",
@@ -351,7 +351,7 @@ class OllamaClient:
     ) -> dict[int, AnswerEvaluation]:
         if not answers:
             return {}
-        content = json.dumps(
+        content = _compact_json(
             {
                 "answers": [
                     {
@@ -362,8 +362,6 @@ class OllamaClient:
                     for index, exercise, learner_answer in answers
                 ]
             },
-            ensure_ascii=False,
-            indent=2,
         )
         result = self._structured_chat(
             prompt_name="answers_evaluate.md",
@@ -422,7 +420,7 @@ class OllamaClient:
         }
         request = Request(
             f"{self.settings.ollama_url}/api/chat",
-            data=json.dumps(payload).encode("utf-8"),
+            data=_compact_json(payload).encode("utf-8"),
             headers={"Content-Type": "application/json"},
             method="POST",
         )

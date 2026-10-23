@@ -58,7 +58,13 @@ def test_structured_request_logs_status_without_logging_content(
     )
 
     assert result.verdict == "correct"
+    raw_payload = requests[0].data.decode("utf-8")
     payload = json.loads(requests[0].data)
+    assert '"model":"test-model"' in raw_payload
+    assert '"model": "test-model"' not in raw_payload
+    assert len(raw_payload) < len(
+        json.dumps(payload, ensure_ascii=False, indent=2)
+    )
     assert payload["think"] is False
     assert payload["keep_alive"] == "30m"
     assert payload["options"]["num_predict"] == 384
@@ -166,7 +172,13 @@ def test_evaluate_answers_sends_one_batch_request(monkeypatch) -> None:
     assert set(evaluations) == {2, 5}
     assert len(requests) == 1
     payload = json.loads(requests[0].data)
-    user_content = json.loads(payload["messages"][1]["content"])
+    raw_user_content = payload["messages"][1]["content"]
+    user_content = json.loads(raw_user_content)
+    assert "\n" not in raw_user_content
+    assert '"answers":[' in raw_user_content
+    assert len(raw_user_content) < len(
+        json.dumps(user_content, ensure_ascii=False, indent=2)
+    )
     assert [item["exercise_index"] for item in user_content["answers"]] == [
         2,
         5,

@@ -18,7 +18,7 @@ The following optimizations are already implemented:
 
 - Qwen thinking is disabled for structured requests
 - the model remains loaded for 30 minutes by default
-- grammar notes are generated in one indexed request
+- grammar notes are generated in indexed batches of at most two
 - output-token limits are set by task
 - generated list sizes are bounded in prompts and response schemas
 - successful input validation is cached in Streamlit session state
@@ -29,6 +29,7 @@ The following optimizations are already implemented:
 - exact, empty, and multiple-choice answers are evaluated in Python
 - exercise contexts rotate deterministically, with one targeted retry only for
   exact or highly similar generated questions
+- learner-task and outer Ollama request JSON use compact UTF-8 serialization
 - Ollama load, prompt evaluation, generation, token count, and throughput
   metrics are logged in the terminal
 
@@ -43,7 +44,7 @@ The configured model remains `qwen3:8b` unless the learner changes
 | Complete | Keep duplicate checks exact and local | High | Remove catalogue prompts and preserve synonyms |
 | Complete | Bound grammar request batches | High | Balance speed and reliability |
 | P0 | Benchmark smaller models and GPU residency | High | Increase generation speed |
-| P1 | Compact request serialization | Medium | Reduce prompt tokens |
+| Complete | Compact request serialization | Medium | Reduce prompt tokens |
 | P1 | Add optional model prewarming | Medium | Reduce first-request latency |
 | P1 | Cache generated previews | Medium | Avoid repeated generation |
 | P2 | Handle Ollama completion reasons | Low for speed, high for reliability | Recover from truncation |
@@ -127,10 +128,11 @@ automatic model download or code-level dependency.
 
 ## P1: Medium-influence optimizations
 
-### 5. Compact request serialization
+### 5. Compact request serialization (completed)
 
-Remove indentation and unnecessary whitespace from JSON sent to Ollama.
-Preserve Unicode content and the existing request structure.
+Learner-task JSON and the outer `/api/chat` request are serialized without
+indentation or separator whitespace. Unicode content and request structure are
+preserved.
 
 Acceptance criteria:
 
@@ -212,7 +214,7 @@ major variable at a time so improvements can be attributed correctly.
 1. Deterministic answer evaluation
 2. Exact-only local duplicate validation
 3. Bounded grammar batches
-4. Compact request serialization
+4. Compact request serialization (completed)
 5. Model and GPU benchmark
 6. Optional model prewarming
 7. Generated-preview caching
