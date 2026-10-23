@@ -336,11 +336,12 @@ normalised expression updates its content rather than creating another row.
 
 ### 6.2 Grammar ingestion
 
-Each grammar input field is validated separately. Valid notes are sent together
-in one Ollama request and returned as indexed `GrammarTopic` objects. The client
-rejects missing or duplicate indexes, restores the original input order, and
-the UI displays each topic in a separate editable form before saving all topics
-in one transaction through `save_grammar_topics`.
+Each grammar input field is validated separately. Valid notes are sent in
+indexed Ollama batches of at most two notes and returned as `GrammarTopic`
+objects. The client rejects missing or duplicate indexes in every batch,
+restores the original input order, and returns nothing unless all batches
+succeed. The UI then displays each topic in a separate editable form before
+saving all topics in one transaction through `save_grammar_topics`.
 
 Grammar topics currently create new records. Exact duplicate input names are
 blocked locally, but related or differently scoped rules are allowed. There is

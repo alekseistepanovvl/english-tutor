@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 VALIDATION_OUTPUT_TOKENS = 768
 VOCABULARY_OUTPUT_TOKENS_PER_ITEM = 1024
 GRAMMAR_OUTPUT_TOKENS_PER_ITEM = 2048
+GRAMMAR_BATCH_SIZE = 2
 EXERCISE_OUTPUT_TOKENS_PER_ITEM = 320
 ANSWER_OUTPUT_TOKENS_PER_ITEM = 192
 MAX_STRUCTURED_OUTPUT_TOKENS = 4096
@@ -94,6 +95,33 @@ class OllamaClient:
         if not raw_inputs:
             raise ValueError("At least one grammar note is required.")
 
+        indexed_inputs = list(enumerate(raw_inputs))
+        topics_by_index: dict[int, GrammarTopic] = {}
+        batch_count = (
+            len(indexed_inputs) + GRAMMAR_BATCH_SIZE - 1
+        ) // GRAMMAR_BATCH_SIZE
+        for batch_number, offset in enumerate(
+            range(0, len(indexed_inputs), GRAMMAR_BATCH_SIZE),
+            start=1,
+        ):
+            batch = indexed_inputs[offset : offset + GRAMMAR_BATCH_SIZE]
+            logger.info(
+                "Generating grammar batch batch=%d/%d items=%d",
+                batch_number,
+                batch_count,
+                len(batch),
+            )
+            topics_by_index.update(
+                self._generate_grammar_batch(batch, approved_topics)
+            )
+
+        return [topics_by_index[index] for index in range(len(raw_inputs))]
+
+    def _generate_grammar_batch(
+        self,
+        indexed_inputs: list[tuple[int, str]],
+        approved_topics: list[dict] | None,
+    ) -> dict[int, GrammarTopic]:
         result = self._structured_chat(
             prompt_name="grammar_extract_many.md",
             user_content=json.dumps(
@@ -103,7 +131,7 @@ class OllamaClient:
                             "input_index": index,
                             "learner_input": raw_input,
                         }
-                        for index, raw_input in enumerate(raw_inputs)
+                        for index, raw_input in indexed_inputs
                     ],
                     "approved_topics": approved_topics or [],
                 },
@@ -114,7 +142,7 @@ class OllamaClient:
             temperature=0,
             max_output_tokens=min(
                 MAX_STRUCTURED_OUTPUT_TOKENS,
-                len(raw_inputs) * GRAMMAR_OUTPUT_TOKENS_PER_ITEM,
+                len(indexed_inputs) * GRAMMAR_OUTPUT_TOKENS_PER_ITEM,
             ),
         )
         topics_by_index: dict[int, GrammarTopic] = {}
@@ -125,13 +153,13 @@ class OllamaClient:
                 )
             topics_by_index[indexed_topic.input_index] = indexed_topic.topic
 
-        expected_indexes = set(range(len(raw_inputs)))
+        expected_indexes = {index for index, _ in indexed_inputs}
         if set(topics_by_index) != expected_indexes:
             raise OllamaError(
                 "The model did not return exactly one grammar topic for "
-                "every submitted input."
+                "every input in the grammar batch."
             )
-        return [topics_by_index[index] for index in range(len(raw_inputs))]
+        return topics_by_index
 
     def validate_vocabulary_inputs(
         self,

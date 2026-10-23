@@ -39,7 +39,7 @@ The configured model remains `qwen3:8b` unless the learner changes
 |---|---|---|---|
 | Complete | Evaluate obvious answers in Python | High | Avoid model requests |
 | Complete | Keep duplicate checks exact and local | High | Remove catalogue prompts and preserve synonyms |
-| P0 | Bound grammar request batches | High | Balance speed and reliability |
+| Complete | Bound grammar request batches | High | Balance speed and reliability |
 | P0 | Benchmark smaller models and GPU residency | High | Increase generation speed |
 | P1 | Compact request serialization | Medium | Reduce prompt tokens |
 | P1 | Add optional model prewarming | Medium | Reduce first-request latency |
@@ -90,11 +90,11 @@ Acceptance criteria:
 - spelling and English-validity checks remain model-validated
 - a growing library does not increase validation prompt size
 
-### 3. Bound grammar request batches
+### 3. Bound grammar request batches (completed)
 
-The current implementation sends all validated grammar notes in one indexed
-request. Split large submissions into bounded groups, initially two or three
-notes per request, while preserving order and one result per input.
+Validated grammar notes are split into deterministic batches of at most two
+notes. Every request uses the original global input indexes, and results are
+returned only after all batches pass Pydantic and exact-index validation.
 
 Acceptance criteria:
 

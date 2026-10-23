@@ -241,8 +241,9 @@ library is not loaded into application memory.
 8. Review and edit each generated topic and its individual rules.
 9. Select **Validate and save grammar**.
 
-All validated grammar notes are generated in one indexed Ollama request. Each
-note still produces a separate editable grammar topic.
+Validated grammar notes are generated in indexed Ollama batches of at most two
+notes. Each note still produces a separate editable grammar topic, and no
+preview is shown unless every batch succeeds.
 
 Grammar topics are currently inserted as new topics. Duplicate detection and
 topic versioning should be added before importing a large library.

@@ -421,7 +421,117 @@ def test_generate_grammars_rejects_incomplete_batch(monkeypatch) -> None:
         )
     )
 
-    with pytest.raises(OllamaError, match="exactly one grammar topic"):
+    with pytest.raises(OllamaError, match="every input in the grammar batch"):
         client.generate_grammars(
             ["Use the present simple.", "Use the past simple."]
         )
+
+
+def test_generate_grammars_uses_bounded_batches(monkeypatch) -> None:
+    requests = []
+
+    def fake_urlopen(request, timeout):
+        requests.append(request)
+        payload = json.loads(request.data)
+        user_content = json.loads(payload["messages"][1]["content"])
+        response_body = {
+            "message": {
+                "content": json.dumps(
+                    {
+                        "topics": [
+                            {
+                                "input_index": item["input_index"],
+                                "topic": grammar_topic(
+                                    f"Topic {item['input_index']}"
+                                ),
+                            }
+                            for item in user_content["input_notes"]
+                        ]
+                    }
+                )
+            }
+        }
+        return BytesIO(json.dumps(response_body).encode())
+
+    monkeypatch.setattr("english_learning.llm.urlopen", fake_urlopen)
+    client = OllamaClient(
+        Settings(
+            model="test-model",
+            ollama_url="http://localhost:11434",
+            database_path=Path("test.sqlite3"),
+            learner_level="B2",
+            english_variant="British",
+        )
+    )
+
+    topics = client.generate_grammars(
+        [f"Grammar note {index}" for index in range(5)]
+    )
+
+    assert [topic.title for topic in topics] == [
+        "Topic 0",
+        "Topic 1",
+        "Topic 2",
+        "Topic 3",
+        "Topic 4",
+    ]
+    assert len(requests) == 3
+    payloads = [json.loads(request.data) for request in requests]
+    batches = [
+        json.loads(payload["messages"][1]["content"])["input_notes"]
+        for payload in payloads
+    ]
+    assert [
+        [item["input_index"] for item in batch]
+        for batch in batches
+    ] == [[0, 1], [2, 3], [4]]
+    assert [
+        payload["options"]["num_predict"] for payload in payloads
+    ] == [4096, 4096, 2048]
+
+
+def test_generate_grammars_rejects_partial_later_batch(monkeypatch) -> None:
+    requests = []
+
+    def fake_urlopen(request, timeout):
+        requests.append(request)
+        payload = json.loads(request.data)
+        user_content = json.loads(payload["messages"][1]["content"])
+        input_notes = user_content["input_notes"]
+        returned_notes = input_notes if len(requests) == 1 else input_notes[:1]
+        response_body = {
+            "message": {
+                "content": json.dumps(
+                    {
+                        "topics": [
+                            {
+                                "input_index": item["input_index"],
+                                "topic": grammar_topic(
+                                    f"Topic {item['input_index']}"
+                                ),
+                            }
+                            for item in returned_notes
+                        ]
+                    }
+                )
+            }
+        }
+        return BytesIO(json.dumps(response_body).encode())
+
+    monkeypatch.setattr("english_learning.llm.urlopen", fake_urlopen)
+    client = OllamaClient(
+        Settings(
+            model="test-model",
+            ollama_url="http://localhost:11434",
+            database_path=Path("test.sqlite3"),
+            learner_level="B2",
+            english_variant="British",
+        )
+    )
+
+    with pytest.raises(OllamaError, match="every input in the grammar batch"):
+        client.generate_grammars(
+            [f"Grammar note {index}" for index in range(4)]
+        )
+
+    assert len(requests) == 2
