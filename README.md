@@ -38,6 +38,9 @@ are not implemented yet.
 Detailed architecture documentation is available in
 [`docs/architecture/README.md`](docs/architecture/README.md).
 
+The prioritized local-model performance plan is available in
+[`docs/ollama-optimization-plan.md`](docs/ollama-optimization-plan.md).
+
 ```text
 Streamlit UI
     |
