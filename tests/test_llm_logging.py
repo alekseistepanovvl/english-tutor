@@ -15,6 +15,7 @@ def test_structured_request_logs_status_without_logging_content(
     caplog,
 ) -> None:
     response_body = {
+        "done_reason": "stop",
         "load_duration": 500_000_000,
         "prompt_eval_count": 100,
         "prompt_eval_duration": 2_000_000_000,
@@ -71,8 +72,142 @@ def test_structured_request_logs_status_without_logging_content(
     assert "Ollama request started task=answer_evaluate.md" in caplog.text
     assert "generated_tokens=40" in caplog.text
     assert "tokens_per_second=10.00" in caplog.text
+    assert "done_reason=stop" in caplog.text
     assert "Ollama request completed task=answer_evaluate.md" in caplog.text
     assert "private learner content" not in caplog.text
+
+
+def test_length_completion_retries_once_with_larger_budget(
+    monkeypatch,
+    caplog,
+) -> None:
+    responses = [
+        {
+            "done_reason": "length",
+            "message": {"content": "{"},
+        },
+        {
+            "done_reason": "stop",
+            "message": {
+                "content": json.dumps(
+                    {
+                        "verdict": "correct",
+                        "score": 1,
+                        "explanation": "Correct.",
+                        "review_again": False,
+                    }
+                )
+            },
+        },
+    ]
+    requests = []
+
+    def fake_urlopen(request, timeout):
+        requests.append(request)
+        response_body = responses.pop(0)
+        return BytesIO(json.dumps(response_body).encode())
+
+    monkeypatch.setattr("english_learning.llm.urlopen", fake_urlopen)
+    caplog.set_level(logging.INFO, logger="english_learning.llm")
+    client = OllamaClient(
+        Settings(
+            model="test-model",
+            ollama_url="http://localhost:11434",
+            database_path=Path("test.sqlite3"),
+            learner_level="B2",
+            english_variant="British",
+        )
+    )
+
+    result = client._structured_chat(
+        prompt_name="answer_evaluate.md",
+        user_content="private learner content",
+        response_model=AnswerEvaluation,
+        temperature=0,
+        max_output_tokens=384,
+    )
+
+    assert result.verdict == "correct"
+    assert len(requests) == 2
+    assert [
+        json.loads(request.data)["options"]["num_predict"]
+        for request in requests
+    ] == [384, 768]
+    assert "done_reason=length" in caplog.text
+    assert "retrying max_output_tokens=768" in caplog.text
+    assert "private learner content" not in caplog.text
+
+
+def test_repeated_length_completion_fails_after_one_retry(
+    monkeypatch,
+) -> None:
+    requests = []
+
+    def fake_urlopen(request, timeout):
+        requests.append(request)
+        response_body = {
+            "done_reason": "length",
+            "message": {"content": "{"},
+        }
+        return BytesIO(json.dumps(response_body).encode())
+
+    monkeypatch.setattr("english_learning.llm.urlopen", fake_urlopen)
+    client = OllamaClient(
+        Settings(
+            model="test-model",
+            ollama_url="http://localhost:11434",
+            database_path=Path("test.sqlite3"),
+            learner_level="B2",
+            english_variant="British",
+        )
+    )
+
+    with pytest.raises(OllamaError, match="stopped before completing"):
+        client._structured_chat(
+            prompt_name="answer_evaluate.md",
+            user_content="private learner content",
+            response_model=AnswerEvaluation,
+            temperature=0,
+            max_output_tokens=384,
+        )
+
+    assert len(requests) == 2
+
+
+def test_length_completion_at_maximum_budget_does_not_retry(
+    monkeypatch,
+) -> None:
+    requests = []
+
+    def fake_urlopen(request, timeout):
+        requests.append(request)
+        response_body = {
+            "done_reason": "length",
+            "message": {"content": "{"},
+        }
+        return BytesIO(json.dumps(response_body).encode())
+
+    monkeypatch.setattr("english_learning.llm.urlopen", fake_urlopen)
+    client = OllamaClient(
+        Settings(
+            model="test-model",
+            ollama_url="http://localhost:11434",
+            database_path=Path("test.sqlite3"),
+            learner_level="B2",
+            english_variant="British",
+        )
+    )
+
+    with pytest.raises(OllamaError, match="stopped before completing"):
+        client._structured_chat(
+            prompt_name="answer_evaluate.md",
+            user_content="private learner content",
+            response_model=AnswerEvaluation,
+            temperature=0,
+            max_output_tokens=4096,
+        )
+
+    assert len(requests) == 1
 
 
 def test_invalid_structured_response_logs_validation_reason(
@@ -89,10 +224,13 @@ def test_invalid_structured_response_logs_validation_reason(
             )
         }
     }
-    monkeypatch.setattr(
-        "english_learning.llm.urlopen",
-        lambda request, timeout: BytesIO(json.dumps(response_body).encode()),
-    )
+    requests = []
+
+    def fake_urlopen(request, timeout):
+        requests.append(request)
+        return BytesIO(json.dumps(response_body).encode())
+
+    monkeypatch.setattr("english_learning.llm.urlopen", fake_urlopen)
     caplog.set_level(logging.WARNING, logger="english_learning.llm")
     client = OllamaClient(
         Settings(
@@ -117,6 +255,7 @@ def test_invalid_structured_response_logs_validation_reason(
     assert "explanation" in caplog.text
     assert "review_again" in caplog.text
     assert "private learner content" not in caplog.text
+    assert len(requests) == 1
 
 
 def test_evaluate_answers_sends_one_batch_request(monkeypatch) -> None:

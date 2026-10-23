@@ -30,6 +30,8 @@ The following optimizations are already implemented:
 - exercise contexts rotate deterministically, with one targeted retry only for
   exact or highly similar generated questions
 - learner-task and outer Ollama request JSON use compact UTF-8 serialization
+- Ollama completion reasons are logged and `length` truncation gets one bounded
+  retry
 - Ollama load, prompt evaluation, generation, token count, and throughput
   metrics are logged in the terminal
 
@@ -47,7 +49,7 @@ The configured model remains `qwen3:8b` unless the learner changes
 | Complete | Compact request serialization | Medium | Reduce prompt tokens |
 | P1 | Add optional model prewarming | Medium | Reduce first-request latency |
 | P1 | Cache generated previews | Medium | Avoid repeated generation |
-| P2 | Handle Ollama completion reasons | Low for speed, high for reliability | Recover from truncation |
+| Complete | Handle Ollama completion reasons | Low for speed, high for reliability | Recover from truncation |
 | Continuous | Use metrics to tune each task | Indirect | Target the actual bottleneck |
 
 ## P0: High-influence optimizations
@@ -178,11 +180,12 @@ Acceptance criteria:
 
 ## P2: Reliability optimization
 
-### 8. Handle Ollama completion reasons
+### 8. Handle Ollama completion reasons (completed)
 
-Log Ollama's completion reason. When a response is truncated because of its
-output limit, retry once with a larger safe budget when the task can still fit
-the configured context.
+Ollama's completion reason is logged for every structured response. A `length`
+completion retries once with up to twice the output budget, capped at the
+configured structured-output maximum. Repeated truncation or an already-maximal
+budget fails explicitly.
 
 Do not retry malformed output indiscriminately. Validation failures unrelated
 to truncation should remain explicit.
@@ -218,7 +221,7 @@ major variable at a time so improvements can be attributed correctly.
 5. Model and GPU benchmark
 6. Optional model prewarming
 7. Generated-preview caching
-8. Completion-reason handling
+8. Completion-reason handling (completed)
 
 No database migration is currently expected for this plan. Reassess that
 decision if a future implementation introduces durable caches, benchmark

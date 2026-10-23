@@ -190,7 +190,8 @@ Streamlit normally opens:
 Application activity and Ollama request status are printed to the same
 terminal where Streamlit is running. Keep that terminal open to inspect
 startup, page navigation, saved content, request timing, token counts,
-generation speed, and structured response validation reasons.
+generation speed, completion reasons, truncation retries, and structured
+response validation reasons.
 
 System, database, model transport, and unexpected exception details are logged
 only in the terminal. The web interface shows generic task-failure messages,

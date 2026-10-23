@@ -40,6 +40,7 @@ GRAMMAR_BATCH_SIZE = 2
 EXERCISE_OUTPUT_TOKENS_PER_ITEM = 320
 ANSWER_OUTPUT_TOKENS_PER_ITEM = 192
 MAX_STRUCTURED_OUTPUT_TOKENS = 4096
+MAX_LENGTH_RETRIES = 1
 
 
 def _compact_json(value: Any) -> str:
@@ -418,69 +419,109 @@ class OllamaClient:
                 "num_predict": max_output_tokens,
             },
         }
-        request = Request(
-            f"{self.settings.ollama_url}/api/chat",
-            data=_compact_json(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        started_at = perf_counter()
-        logger.info(
-            "Ollama request started task=%s model=%s max_output_tokens=%d",
-            prompt_name,
-            self.settings.model,
-            max_output_tokens,
-        )
-        try:
-            with urlopen(request, timeout=180) as response:
-                body = json.load(response)
-        except HTTPError as error:
-            detail = error.read().decode("utf-8", errors="replace")
-            logger.warning(
-                "Ollama request failed task=%s status=%d elapsed=%.2fs",
-                prompt_name,
-                error.code,
-                perf_counter() - started_at,
+        current_output_tokens = max_output_tokens
+        for attempt in range(1, MAX_LENGTH_RETRIES + 2):
+            payload["options"]["num_predict"] = current_output_tokens
+            request = Request(
+                f"{self.settings.ollama_url}/api/chat",
+                data=_compact_json(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
             )
-            raise OllamaError(
-                f"Ollama returned HTTP {error.code}: {detail}"
-            ) from error
-        except (URLError, TimeoutError) as error:
-            logger.warning(
-                "Ollama request failed task=%s reason=%s elapsed=%.2fs",
+            started_at = perf_counter()
+            logger.info(
+                "Ollama request started task=%s model=%s attempt=%d "
+                "max_output_tokens=%d",
                 prompt_name,
-                type(error).__name__,
-                perf_counter() - started_at,
+                self.settings.model,
+                attempt,
+                current_output_tokens,
             )
-            raise OllamaError(
-                "Could not contact Ollama. Confirm that it is installed, "
-                "running, and configured correctly."
-            ) from error
+            try:
+                with urlopen(request, timeout=180) as response:
+                    body = json.load(response)
+            except HTTPError as error:
+                detail = error.read().decode("utf-8", errors="replace")
+                logger.warning(
+                    "Ollama request failed task=%s status=%d elapsed=%.2fs",
+                    prompt_name,
+                    error.code,
+                    perf_counter() - started_at,
+                )
+                raise OllamaError(
+                    f"Ollama returned HTTP {error.code}: {detail}"
+                ) from error
+            except (URLError, TimeoutError) as error:
+                logger.warning(
+                    "Ollama request failed task=%s reason=%s elapsed=%.2fs",
+                    prompt_name,
+                    type(error).__name__,
+                    perf_counter() - started_at,
+                )
+                raise OllamaError(
+                    "Could not contact Ollama. Confirm that it is installed, "
+                    "running, and configured correctly."
+                ) from error
 
-        self._log_response_metrics(prompt_name, body)
-        try:
-            content = body["message"]["content"]
-            result = response_model.model_validate_json(content)
-        except (KeyError, TypeError, ValueError) as error:
-            logger.warning(
-                "Ollama returned invalid structured data task=%s "
-                "reason=%s: %s elapsed=%.2fs",
+            self._log_response_metrics(prompt_name, body)
+            done_reason = body.get("done_reason")
+            logger.info(
+                "Ollama completion task=%s attempt=%d done_reason=%s",
                 prompt_name,
-                type(error).__name__,
-                error,
+                attempt,
+                done_reason or "unknown",
+            )
+            if done_reason == "length":
+                next_output_tokens = min(
+                    MAX_STRUCTURED_OUTPUT_TOKENS,
+                    current_output_tokens * 2,
+                )
+                if (
+                    attempt <= MAX_LENGTH_RETRIES
+                    and next_output_tokens > current_output_tokens
+                ):
+                    logger.warning(
+                        "Ollama output truncated task=%s retrying "
+                        "max_output_tokens=%d",
+                        prompt_name,
+                        next_output_tokens,
+                    )
+                    current_output_tokens = next_output_tokens
+                    continue
+                logger.warning(
+                    "Ollama output truncated task=%s retry_available=false",
+                    prompt_name,
+                )
+                raise OllamaError(
+                    "Ollama stopped before completing the structured response."
+                )
+
+            try:
+                content = body["message"]["content"]
+                result = response_model.model_validate_json(content)
+            except (KeyError, TypeError, ValueError) as error:
+                logger.warning(
+                    "Ollama returned invalid structured data task=%s "
+                    "reason=%s: %s elapsed=%.2fs",
+                    prompt_name,
+                    type(error).__name__,
+                    error,
+                    perf_counter() - started_at,
+                )
+                raise OllamaError(
+                    "The model returned an invalid structured response. "
+                    "Try again or choose a model with stronger instruction "
+                    "following."
+                ) from error
+            logger.info(
+                "Ollama request completed task=%s attempt=%d elapsed=%.2fs",
+                prompt_name,
+                attempt,
                 perf_counter() - started_at,
             )
-            raise OllamaError(
-                "The model returned an invalid structured response. "
-                "Try again or choose a model with stronger instruction "
-                "following."
-            ) from error
-        logger.info(
-            "Ollama request completed task=%s elapsed=%.2fs",
-            prompt_name,
-            perf_counter() - started_at,
-        )
-        return result
+            return result
+
+        raise OllamaError("Ollama did not complete the structured response.")
 
     @staticmethod
     def _log_response_metrics(
