@@ -269,6 +269,9 @@ def test_validate_vocabulary_inputs_returns_indexed_results(
     assert validations[0].suggested_input == "commute"
     assert validations[2].status == "valid"
     assert len(requests) == 1
+    payload = json.loads(requests[0].data)
+    user_content = json.loads(payload["messages"][1]["content"])
+    assert "existing_saved_entries" not in user_content
 
 
 def test_validate_inputs_rejects_incomplete_results(monkeypatch) -> None:

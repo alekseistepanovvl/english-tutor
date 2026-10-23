@@ -6,8 +6,10 @@ content is generated.
 - Mark spelling mistakes, typos, or malformed expressions as corrected and
   provide the complete corrected expression in suggested_input.
 - Mark text that is not a meaningful English word or expression as invalid.
-- Mark an input as invalid when it is the same vocabulary entry as an item in
-  existing_saved_entries. Do not treat a synonym as a duplicate.
+- Treat synonyms, paraphrases, related expressions, different grammatical
+  forms, and expressions with overlapping meanings as distinct valid learning
+  material.
+- Exact duplicate detection is handled by the application, not by the model.
 - Do not change a valid expression merely to prefer a synonym or different
   style.
 - Keep phrasal verbs, idioms, collocations, and multi-word expressions intact.

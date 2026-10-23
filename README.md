@@ -216,6 +216,11 @@ Saving an expression with the same normalised value updates the existing
 vocabulary record instead of creating a duplicate. Existing lesson memberships
 are preserved when no replacement lesson selection is supplied.
 
+Vocabulary validation treats only normalized copies of the same expression as
+duplicates. Synonyms, paraphrases, related expressions, and different
+grammatical forms remain separate learning entries. Saved vocabulary is not
+sent to Ollama during validation.
+
 ### Add grammar
 
 1. Open **Grammar**.
@@ -355,9 +360,9 @@ natural-language instructions.
 Extraction and evaluation use temperature `0`. Exercise generation uses a
 small amount of variation. Structured requests disable model thinking and use
 task-sized output limits. Successful input validations are cached for the
-current browser session and invalidated when the model or saved-entry catalogue
-changes. Prompt changes should eventually receive explicit version numbers so
-content can be traced to the prompt that generated it.
+current browser session and invalidated when the model, task, prompt version,
+or normalized input changes. Prompt changes should eventually receive explicit
+version numbers so content can be traced to the prompt that generated it.
 
 ## Run tests
 
@@ -434,7 +439,8 @@ Claude Code workflow commands are available under `.claude/commands/`:
 6. Add JSON export and automatic SQLite backups.
 7. Add prompt versions and model metadata to generated records.
 8. Add progress charts and detailed topic statistics.
-9. Add optional local embeddings for semantic search and duplicate detection.
+9. Add optional local embeddings for semantic search and related-expression
+   discovery.
 
 Avoid adding a vector database until semantic search is actually needed.
 SQLite is simpler and sufficient for thousands of learning records.

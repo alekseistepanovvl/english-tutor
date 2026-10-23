@@ -245,7 +245,6 @@ def validate_inputs(
             kind=kind,
             model=settings.model,
             value=value,
-            existing_values=existing_values,
         )
         cache_keys[index] = cache_key
         cached = validation_cache.get(cache_key)
@@ -257,15 +256,9 @@ def validate_inputs(
             pending.append((index, value))
 
     if kind == "vocabulary":
-        fresh_validations = llm.validate_vocabulary_inputs(
-            pending,
-            existing_values,
-        )
+        fresh_validations = llm.validate_vocabulary_inputs(pending)
     else:
-        fresh_validations = llm.validate_grammar_inputs(
-            pending,
-            existing_values,
-        )
+        fresh_validations = llm.validate_grammar_inputs(pending)
     validations.update(fresh_validations)
     for index, validation in fresh_validations.items():
         if validation.status == "valid":

@@ -234,11 +234,13 @@ latest answer score after the first attempt.
 Contains deterministic input normalisation, duplicate detection, and
 validation-cache key generation.
 
-Exact duplicates are detected using case-insensitive, whitespace-normalised
-text. The LLM validation step can additionally identify semantically duplicate
-entries against a supplied saved-content catalogue. Successful validations are
-cached in Streamlit session state; keys include the model, validation task,
-normalised input, prompt version, and current saved-entry catalogue.
+Exact duplicates are detected using Unicode-normalised, case-insensitive text
+with normalized whitespace, apostrophes, and terminal punctuation. Saved
+catalogues are not sent to model validation. Synonyms, paraphrases, related
+expressions, differently scoped grammar rules, and alternative examples remain
+valid independent learning material. Successful validations are cached in
+Streamlit session state; keys include the model, validation task, normalized
+input, and prompt version.
 
 ### `prompts/`
 
@@ -335,9 +337,9 @@ rejects missing or duplicate indexes, restores the original input order, and
 the UI displays each topic in a separate editable form before saving all topics
 in one transaction through `save_grammar_topics`.
 
-Grammar topics currently create new records. Semantic duplicate validation
-reduces accidental duplication, but there is no database uniqueness constraint
-or topic-versioning mechanism.
+Grammar topics currently create new records. Exact duplicate input names are
+blocked locally, but related or differently scoped rules are allowed. There is
+no database uniqueness constraint or topic-versioning mechanism.
 
 ### 6.3 Topic organisation
 

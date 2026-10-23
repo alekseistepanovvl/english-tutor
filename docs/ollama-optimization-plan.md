@@ -22,6 +22,8 @@ The following optimizations are already implemented:
 - output-token limits are set by task
 - generated list sizes are bounded in prompts and response schemas
 - successful input validation is cached in Streamlit session state
+- exact duplicate checks are local and saved catalogues are excluded from
+  validation prompts
 - exact, empty, and multiple-choice answers are evaluated in Python
 - Ollama load, prompt evaluation, generation, token count, and throughput
   metrics are logged in the terminal
@@ -34,7 +36,7 @@ The configured model remains `qwen3:8b` unless the learner changes
 | Priority | Recommendation | Expected influence | Primary benefit |
 |---|---|---|---|
 | Complete | Evaluate obvious answers in Python | High | Avoid model requests |
-| P0 | Shortlist duplicate candidates locally | High | Reduce prompt size |
+| Complete | Keep duplicate checks exact and local | High | Remove catalogue prompts and preserve synonyms |
 | P0 | Bound grammar request batches | High | Balance speed and reliability |
 | P0 | Benchmark smaller models and GPU residency | High | Increase generation speed |
 | P1 | Compact request serialization | Medium | Reduce prompt tokens |
@@ -67,23 +69,24 @@ Acceptance criteria:
 - focused tests cover normalization, alternatives, mixed deterministic/model
   batches, and attempt persistence
 
-### 2. Shortlist duplicate candidates locally
+### 2. Keep duplicate checks exact and local (completed)
 
-Do not send the complete vocabulary or grammar library to input validation as
-the library grows. Use deterministic local matching to select a small set of
-plausible duplicates for each submitted entry.
+Python blocks only normalized copies of the same submitted or saved expression.
+Normalization covers Unicode width, case, whitespace, typographic apostrophes,
+and harmless terminal punctuation.
 
-Initial implementation should avoid a schema migration if standard-library
-similarity and existing SQLite queries are sufficient. A shortlist should be
-bounded, for example to the 10-20 closest candidates.
+Saved vocabulary and grammar catalogues are not sent to Ollama validation.
+Vocabulary synonyms, paraphrases, related expressions, and different
+grammatical forms remain separate learning entries. Related or differently
+scoped grammar explanations are also allowed.
 
 Acceptance criteria:
 
 - exact duplicate detection remains entirely deterministic
-- semantic validation receives only bounded candidate lists
-- a growing library does not cause validation prompt size to grow linearly
-- tests confirm that likely matches are included and unrelated entries are
-  excluded
+- saved catalogues are absent from validation requests
+- vocabulary synonyms and related expressions are not rejected
+- spelling and English-validity checks remain model-validated
+- a growing library does not increase validation prompt size
 
 ### 3. Bound grammar request batches
 
@@ -192,7 +195,7 @@ Interpret the existing metrics as follows:
 | Observation | Likely bottleneck | Response |
 |---|---|---|
 | High model load duration | Cold model | Keep alive or prewarm |
-| High prompt evaluation time/count | Large request context | Shortlist and compact input |
+| High prompt evaluation time/count | Large request context | Reduce and compact input |
 | Low generated tokens per second | Model or hardware | Smaller model or better GPU residency |
 | Excessive generated token count | Verbose output | Tighten prompt and response bounds |
 | Low Ollama time but high UI latency | Application workflow | Profile Streamlit reruns and database queries |
@@ -203,7 +206,7 @@ major variable at a time so improvements can be attributed correctly.
 ## Suggested implementation order
 
 1. Deterministic answer evaluation
-2. Local duplicate shortlisting
+2. Exact-only local duplicate validation
 3. Bounded grammar batches
 4. Compact request serialization
 5. Model and GPU benchmark

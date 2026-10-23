@@ -136,23 +136,19 @@ class OllamaClient:
     def validate_vocabulary_inputs(
         self,
         inputs: list[tuple[int, str]],
-        existing_values: list[str] | None = None,
     ) -> dict[int, InputValidation]:
         return self._validate_inputs(
             prompt_name="vocabulary_validate.md",
             inputs=inputs,
-            existing_values=existing_values,
         )
 
     def validate_grammar_inputs(
         self,
         inputs: list[tuple[int, str]],
-        existing_values: list[str] | None = None,
     ) -> dict[int, InputValidation]:
         return self._validate_inputs(
             prompt_name="grammar_validate.md",
             inputs=inputs,
-            existing_values=existing_values,
         )
 
     def _validate_inputs(
@@ -160,7 +156,6 @@ class OllamaClient:
         *,
         prompt_name: str,
         inputs: list[tuple[int, str]],
-        existing_values: list[str] | None,
     ) -> dict[int, InputValidation]:
         if not inputs:
             return {}
@@ -172,7 +167,6 @@ class OllamaClient:
                         {"input_index": index, "input": value}
                         for index, value in inputs
                     ],
-                    "existing_saved_entries": existing_values or [],
                 },
                 ensure_ascii=False,
                 indent=2,
