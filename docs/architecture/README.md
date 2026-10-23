@@ -491,11 +491,16 @@ new session may discard unsaved work.
 Expected recoverable errors are shown as actionable Streamlit messages.
 Examples include:
 
-- Ollama unavailable
-- malformed or incomplete model output
 - invalid edited preview data
 - duplicate lesson-topic names
-- foreign-key or integrity failures
+- invalid vocabulary or grammar input
+- incorrect or incomplete practice answers
+
+System, database, Ollama transport, malformed model output, parsing, and
+unexpected exception details are written only to terminal logs. The UI shows a
+generic task-failure message for these cases. Streamlit
+`client.showErrorDetails` is set to `none`, so uncaught exceptions do not expose
+types, messages, or tracebacks in the browser.
 
 Terminal logs include:
 

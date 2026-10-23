@@ -49,6 +49,11 @@ database.initialize()
 llm = OllamaClient(settings)
 
 
+def report_system_error(log_message: str, user_message: str) -> None:
+    logger.exception(log_message)
+    st.error(user_message)
+
+
 def nonempty_lines(value: str) -> list[str]:
     return [line.strip() for line in value.splitlines() if line.strip()]
 
@@ -568,8 +573,11 @@ def vocabulary_page() -> None:
                         inputs=submitted_inputs,
                         existing_values=existing_values,
                     )
-            except (OllamaError, sqlite3.Error) as error:
-                st.error(str(error))
+            except (OllamaError, sqlite3.Error):
+                report_system_error(
+                    "Vocabulary validation failed",
+                    "Could not validate vocabulary. Try again.",
+                )
     inputs_are_valid = render_input_validation(
         "vocabulary",
         submitted_inputs,
@@ -587,8 +595,11 @@ def vocabulary_page() -> None:
                 st.session_state["vocabulary_lesson_ids"] = (
                     selected_lesson_topics
                 )
-            except OllamaError as error:
-                st.error(str(error))
+            except OllamaError:
+                report_system_error(
+                    "Vocabulary generation failed",
+                    "Could not generate vocabulary. Try again.",
+                )
 
     if preview := st.session_state.get("vocabulary_preview"):
         st.subheader("Review generated vocabulary")
@@ -609,8 +620,13 @@ def vocabulary_page() -> None:
                 st.success(f"Saved {count} vocabulary item(s).")
                 del st.session_state["vocabulary_preview"]
                 st.rerun()
-            except (ValidationError, ValueError, sqlite3.IntegrityError) as error:
-                st.error(f"Could not save vocabulary:\n\n{error}")
+            except ValidationError as error:
+                st.error(f"Check the vocabulary details:\n\n{error}")
+            except (ValueError, sqlite3.Error):
+                report_system_error(
+                    "Vocabulary save failed",
+                    "Could not save vocabulary. Try again.",
+                )
 
 
 def grammar_page() -> None:
@@ -656,8 +672,11 @@ def grammar_page() -> None:
                         inputs=submitted_inputs,
                         existing_values=existing_values,
                     )
-            except OllamaError as error:
-                st.error(str(error))
+            except (OllamaError, sqlite3.Error):
+                report_system_error(
+                    "Grammar validation failed",
+                    "Could not validate grammar. Try again.",
+                )
     inputs_are_valid = render_input_validation(
         "grammar",
         submitted_inputs,
@@ -676,8 +695,11 @@ def grammar_page() -> None:
                 st.session_state["grammar_lesson_ids"] = (
                     selected_lesson_topics
                 )
-            except OllamaError as error:
-                st.error(str(error))
+            except (OllamaError, sqlite3.Error):
+                report_system_error(
+                    "Grammar generation failed",
+                    "Could not generate grammar. Try again.",
+                )
 
     if preview := st.session_state.get("grammar_preview"):
         st.subheader("Review generated grammar")
@@ -699,8 +721,13 @@ def grammar_page() -> None:
                 st.success(f"Saved {len(topics)} grammar topic(s).")
                 del st.session_state["grammar_preview"]
                 st.rerun()
-            except (ValidationError, ValueError, sqlite3.IntegrityError) as error:
-                st.error(f"Could not save grammar:\n\n{error}")
+            except ValidationError as error:
+                st.error(f"Check the grammar details:\n\n{error}")
+            except (ValueError, sqlite3.Error):
+                report_system_error(
+                    "Grammar save failed",
+                    "Could not save grammar. Try again.",
+                )
 
 
 def practice_page() -> None:
@@ -814,8 +841,11 @@ def practice_page() -> None:
                     source.lower(),
                     len(selected_items),
                 )
-            except OllamaError as error:
-                st.error(str(error))
+            except (OllamaError, ValueError, sqlite3.Error):
+                report_system_error(
+                    "Practice generation failed",
+                    "Could not generate practice exercises. Try again.",
+                )
 
     exercise_set = st.session_state.get("exercise_set")
     if not exercise_set:
@@ -981,8 +1011,11 @@ def practice_page() -> None:
                     len(pending_indexes),
                 )
                 st.rerun()
-            except (OllamaError, ValueError, sqlite3.IntegrityError) as error:
-                st.error(str(error))
+            except (OllamaError, ValueError, sqlite3.Error):
+                report_system_error(
+                    "Practice answer submission failed",
+                    "Could not check and save the answers. Try again.",
+                )
 
 
 def topics_page() -> None:
@@ -1085,8 +1118,14 @@ def topics_page() -> None:
                             ],
                         )
                         st.rerun()
-                    except sqlite3.IntegrityError as error:
-                        st.error(f"Could not save topic: {error}")
+                    except sqlite3.IntegrityError:
+                        report_system_error(
+                            "Lesson topic update failed",
+                            (
+                                "Could not save the topic. Its name may "
+                                "already be in use."
+                            ),
+                        )
                 if right.button(
                     "Delete topic",
                     key=f"delete_lesson_{topic['id']}",
@@ -1137,8 +1176,14 @@ def topics_page() -> None:
                             approved_name=approved_name,
                         )
                         st.rerun()
-                    except sqlite3.IntegrityError as error:
-                        st.error(f"Could not approve topic: {error}")
+                    except sqlite3.IntegrityError:
+                        report_system_error(
+                            "LLM topic approval failed",
+                            (
+                                "Could not approve the topic. Its name may "
+                                "already be in use."
+                            ),
+                        )
                 if merge_col.button(
                     "Merge",
                     key=f"merge_{topic['id']}",

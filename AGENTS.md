@@ -81,6 +81,9 @@ Do not make the database or LLM modules depend on Streamlit.
 
 - Never save generated content before the learner previews it.
 - Display actionable errors rather than raw tracebacks.
+- Show detailed learner-content and task mistakes in the UI, but log system,
+  database, model transport, parsing, and unexpected exception details only in
+  the terminal. Use generic task-failure messages in the UI.
 - Preserve user input after recoverable failures.
 - Keep learning, practice, review, and library workflows separate.
 - Do not put domain or persistence rules directly in Streamlit callbacks.
@@ -123,4 +126,3 @@ Do not document unfinished functionality as available.
   without an explicit requirement.
 - Prefer standard-library functionality when it remains clear and reliable.
 - Do not commit the SQLite database, local models, `.env`, or learner data.
-

@@ -192,6 +192,11 @@ terminal where Streamlit is running. Keep that terminal open to inspect
 startup, page navigation, saved content, request timing, token counts,
 generation speed, and structured response validation reasons.
 
+System, database, model transport, and unexpected exception details are logged
+only in the terminal. The web interface shows generic task-failure messages,
+while learner-content validation, duplicate names, and practice-answer feedback
+remain specific and actionable.
+
 Buttons that call Ollama display a visible loading indicator until the request
 finishes. Use **Clear current page** in the sidebar to reset temporary inputs,
 previews, or practice results for the selected page. This does not delete
